@@ -1,0 +1,1 @@
+"""Astra Music plugin package."""

@@ -1,0 +1,15 @@
+{
+  "name": "astra-music-easyvk-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pinned EasyVK AudioAPI runtime used by the Astra Music plugin",
+  "license": "MIT",
+  "dependencies": {
+    "easyvk-audio": "https://github.com/PurpleHorrorRus/EasyVK-AudioAPI/archive/26b1973ac49b58743eac64846a4291948c220bf5.tar.gz"
+  },
+  "overrides": {
+    "easyvk-audio": {
+      "fluent-ffmpeg": "2.1.3"
+    }
+  }
+}

@@ -1,0 +1,349 @@
+/* Astra hands the theme over through its own stylesheet (the bridge loads
+   theme/variables.css and mirrors the mode onto <html data-theme>), so every
+   colour here is an Astra token. The fallbacks use light-dark() rather than a
+   single light value: a hardcoded near-white is exactly how this tab ended up
+   with grey-on-white text on a light theme. */
+
+:root {
+  /* A dark used color-scheme on the root makes the browser paint its own
+     near-black canvas beneath the document — under a transparent iframe that
+     is the "plugin has a black background" bug, and Astra cannot repair it. */
+  color-scheme: normal;
+  --fg: var(--color-text, light-dark(#1a1a1f, #f4f4f5));
+  --muted: var(--color-text-muted, light-dark(#5f6470, #a9a9b3));
+  --accent: var(--color-accent, #9b8cff);
+  --surface: color-mix(in srgb, var(--color-surface, light-dark(#ffffff, #292935)) 22%, transparent);
+  --surface-solid: color-mix(in srgb, var(--color-surface, light-dark(#ffffff, #292935)) 45%, transparent);
+  --hover: color-mix(in srgb, var(--color-surface-hover, light-dark(#000000, #ffffff)) 12%, transparent);
+  --fill: color-mix(in srgb, var(--color-overlay, light-dark(#000000, #ffffff)) 8%, transparent);
+  --rim: color-mix(in srgb, var(--color-border, #777) 55%, transparent);
+  --focus: var(--edge-focus, 0 0 0 3px color-mix(in srgb, var(--color-accent, #9b8cff) 35%, transparent));
+  --control-rim: var(--edge-control, 0 0 0 1px color-mix(in srgb, var(--color-border, #777) 60%, transparent));
+  --r: var(--radius-md, 12px);
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html[data-theme="light"] {
+  --fg: var(--color-text, #1a1a1f);
+  --muted: var(--color-text-muted, #5f6470);
+  --surface: color-mix(in srgb, var(--color-surface, #ffffff) 55%, transparent);
+  --surface-solid: color-mix(in srgb, var(--color-surface, #ffffff) 78%, transparent);
+  --fill: color-mix(in srgb, #000000 5%, transparent);
+}
+
+html[data-theme="dark"] {
+  --fg: var(--color-text, #f4f4f5);
+  --muted: var(--color-text-muted, #a9a9b3);
+}
+
+body {
+  color-scheme: light dark;
+  user-select: none;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+/* Astra shows no scrollbars; the page still scrolls. */
+* {
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+}
+
+body {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--fg);
+}
+
+input,
+textarea {
+  user-select: text;
+}
+
+/* The iframe has no intrinsic height and the host never scrolls a plugin page,
+   so the root is positioned and scrolling is ours. */
+#app {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rim);
+}
+
+.message { border-top: 1px solid var(--rim); border-bottom: 0; }
+.message:empty { display: none; }
+
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 14px;
+  /* Astra's floating bar sits over the bottom of the iframe. */
+  padding-bottom: 72px;
+}
+
+h1 { margin: 0; font-size: 17px; letter-spacing: -0.02em; }
+h2 { margin: 0 0 8px; font-size: 15px; letter-spacing: -0.01em; }
+
+.pill {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  box-shadow: var(--control-rim);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pill.good { color: var(--color-positive, #35c56f); }
+.pill.bad { color: var(--color-negative, #ff6b6b); }
+
+.card {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: var(--r);
+  background: var(--surface);
+  box-shadow: var(--control-rim);
+}
+
+.player-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.player-heading .hint { margin: 2px 0 8px; }
+.note,
+.hint {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.card > .hint:first-of-type { margin-top: 0; }
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Every control is drawn here: the tokens restyle nothing on their own, and a
+   native <select> popup is painted by the OS outside the document, in its own
+   colours — that white-on-grey list was the reported bug. */
+input,
+.trigger,
+button {
+  appearance: none;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r);
+  color: var(--fg);
+  background: var(--fill);
+  box-shadow: var(--control-rim);
+  font: inherit;
+}
+
+input::placeholder { color: var(--muted); }
+
+input:focus-visible,
+.trigger:focus-visible,
+button:focus-visible {
+  outline: none;
+  box-shadow: var(--control-rim), var(--focus);
+}
+
+button { cursor: pointer; }
+button:hover { background: var(--hover); }
+button:disabled { opacity: 0.78; cursor: not-allowed; }
+
+button.primary {
+  color: #fff;
+  background: linear-gradient(135deg, #4263eb 0%, #7048e8 100%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 18%), 0 2px 8px rgb(55 48 163 / 24%);
+}
+
+button.primary:hover { background: linear-gradient(135deg, #3455dc 0%, #6139d5 100%); }
+button.primary:disabled {
+  opacity: 1;
+  color: #fff;
+  background: linear-gradient(135deg, #586bbf 0%, #735eae 100%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 12%);
+}
+button.danger { color: var(--color-negative, #ff6b6b); }
+
+#query { flex: 1 1 180px; }
+
+/* --- service picker (drawn, not native) --- */
+
+.picker { position: relative; flex: 0 0 190px; }
+
+.trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trigger::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg) translateY(-2px);
+}
+
+.menu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  border-radius: var(--r);
+  background: var(--surface-solid);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--control-rim), 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+.menu[hidden] { display: none; }
+
+.menu li {
+  padding: 8px 10px;
+  border-radius: calc(var(--r) - 4px);
+  cursor: pointer;
+}
+
+.menu li:hover,
+.menu li[aria-selected="true"] { background: var(--hover); }
+
+.menu li[aria-selected="true"] { color: var(--accent); font-weight: 600; }
+
+/* --- connection cards --- */
+
+.service {
+  padding: 8px 0;
+  border-top: 1px solid var(--rim);
+}
+
+.service:first-child { border-top: 0; }
+
+.service .head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.service .fields { display: grid; gap: 6px; }
+.service input { width: 100%; }
+.service textarea {
+  width: 100%;
+  min-height: 92px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r);
+  color: var(--fg);
+  background: var(--fill);
+  box-shadow: var(--control-rim);
+  font: 12px/1.4 ui-monospace, Consolas, monospace;
+  resize: vertical;
+}
+.service textarea:focus-visible { outline: none; box-shadow: var(--control-rim), var(--focus); }
+.service .actions { margin-top: 6px; gap: 7px; }
+
+.service-help {
+  margin-top: 8px;
+  border: 1px solid var(--rim);
+  border-radius: calc(var(--r) - 3px);
+  background: var(--fill);
+}
+.service-help summary {
+  padding: 8px 10px;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+}
+.help-body { padding: 0 10px 10px; color: var(--muted); font-size: 12.5px; }
+.help-body p { margin: 7px 0; }
+.help-body ul { margin: 6px 0; padding-left: 20px; }
+.help-body li { margin: 4px 0; }
+.help-body strong { color: var(--fg); }
+.help-body a { color: var(--accent); }
+.help-body code { color: var(--fg); }
+
+/* --- track and playlist rows --- */
+
+.list { display: grid; gap: 8px; margin-top: 10px; }
+.list:empty { margin-top: 0; }
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--surface-solid);
+  box-shadow: var(--control-rim);
+}
+
+.item:hover { background: var(--hover); }
+.item .who { flex: 1 1 160px; min-width: 0; }
+
+.item .title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item .sub { color: var(--muted); font-size: 12px; }
+.item .actions { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.item .actions button { min-height: 32px; padding: 6px 10px; white-space: nowrap; }
+
+.message {
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+}
+
+.message.good { color: var(--color-positive, #35c56f); }
+.message.bad { color: var(--color-negative, #ff6b6b); }
+
+.link input { width: 100%; }
+
+@media (max-width: 640px) {
+  .picker { flex: 1 1 100%; }
+
+  .item {
+    align-items: flex-start;
+    flex-direction: row;
+  }
+
+  .item .who { flex-basis: 100%; }
+  .item .actions { flex: 1 1 100%; justify-content: flex-start; }
+}

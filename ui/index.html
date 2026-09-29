@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Музыка</title>
+<!-- The bridge must load first and in <head>: it installs Astra's real
+     stylesheet, so the tokens below exist before the first paint. -->
+<script src="http://astra-plugin.localhost/bridge/astra-bridge.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- Astra's iframe has no intrinsic height: the root must be absolutely
+     positioned, or the page collapses to zero. -->
+<main id="app">
+  <header class="bar">
+    <h1>Музыка</h1>
+    <span id="status" class="pill" role="status">загрузка…</span>
+  </header>
+
+  <div class="scroll">
+    <p class="note">
+      Яндекс Музыка запускается во встроенном плеере внизу Главной: выберите
+      трек, перейдите на Главную и нажмите ▶. VK воспроизводится там же после импорта сессии.
+      Если встроенный поток Яндекса недоступен, откройте трек в приложении сервиса.
+      Если поток VK недоступен, откройте трек на странице VK.
+    </p>
+
+    <section class="card" aria-label="Подключение сервисов">
+      <h2>Подключение</h2>
+      <p class="hint">
+        Токен сервиса хранится в <code>%APPDATA%\music-controller</code> и не уходит
+        никуда, кроме API этого сервиса.
+      </p>
+      <div id="services"></div>
+    </section>
+
+    <section class="card" aria-label="Поиск">
+      <h2>Поиск</h2>
+      <form id="searchForm" class="row">
+        <div class="picker" id="servicePicker">
+          <button type="button" class="trigger" id="serviceTrigger" aria-haspopup="listbox"
+                  aria-expanded="false" aria-label="Сервис">Яндекс Музыка</button>
+          <ul class="menu" id="serviceMenu" role="listbox" aria-label="Сервис" hidden></ul>
+        </div>
+        <input id="query" type="search" placeholder="Артист или трек" autocomplete="off">
+        <button type="button" class="primary" id="searchBtn">Найти</button>
+      </form>
+      <div id="results" class="list"></div>
+    </section>
+
+    <section class="card" id="playerCard" aria-label="Встроенный плеер" hidden>
+      <div class="player-heading">
+        <div><h2 id="playerTitle">Плеер</h2><p id="playerSubtitle" class="hint"></p></div>
+        <button type="button" id="closePlayer">Закрыть</button>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Плейлисты">
+      <h2>Плейлисты</h2>
+      <div class="row">
+        <button type="button" id="playlistBtn">Показать плейлисты выбранного сервиса</button>
+        <button type="button" id="radioBtn">Включить «Мою волну»</button>
+      </div>
+      <div id="playlists" class="list"></div>
+      <div id="playlistTracks" class="list"></div>
+    </section>
+
+    <section class="card" aria-label="Запуск музыки во внешнем плеере">
+      <h2>Открытие внешнего плеера</h2>
+      <p class="hint">
+        Эта настройка относится к кнопке «Открыть». Для воспроизведения VK внутри Astra
+        подключите токен и локальную сессию в карточке сервиса выше.
+      </p>
+      <div class="picker" id="modePicker">
+        <button type="button" class="trigger" id="modeTrigger" aria-haspopup="listbox"
+                aria-expanded="false" aria-label="Куда отправлять трек">Авто</button>
+        <ul class="menu" id="modeMenu" role="listbox" aria-label="Куда отправлять трек" hidden></ul>
+      </div>
+      <div id="desktop" class="hint"></div>
+    </section>
+
+    <div id="linkBox" class="card link" hidden>
+      <p class="hint">Ссылка не открылась сама — скопируйте её:</p>
+      <input id="linkValue" type="text" readonly>
+    </div>
+  </div>
+
+  <footer id="message" class="bar message" role="status"></footer>
+</main>
+<script src="script.js"></script>
+</body>
+</html>

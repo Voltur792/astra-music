@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="http://astra-plugin.localhost/bridge/astra-bridge.js"></script>
+  <link rel="stylesheet" href="player-v8.css">
+  <title>Плеер Яндекс Музыки</title>
+</head>
+<body>
+  <div class="player" role="group" aria-label="Плеер Яндекс Музыки">
+    <div class="track">
+      <strong id="title">Подключаю плеер Astra…</strong>
+      <span id="artist">Яндекс Музыка</span>
+      <small id="source"></small>
+    </div>
+    <div class="timeline">
+      <span id="elapsed">0:00</span>
+      <input id="seek" type="range" min="0" max="0" step="1" value="0" aria-label="Позиция трека" disabled>
+      <span id="duration">0:00</span>
+    </div>
+    <div class="bottom-row">
+      <div class="controls">
+        <button id="previous" type="button" aria-label="Предыдущий трек" title="Предыдущий" disabled>⏮</button>
+        <button id="play" class="primary" type="button" aria-label="Воспроизвести" title="Воспроизвести / пауза" disabled>▶</button>
+        <button id="next" type="button" aria-label="Следующий трек" title="Следующий" disabled>⏭</button>
+        <button id="stop" type="button" aria-label="Остановить" title="Остановить" disabled>■</button>
+      </div>
+      <label class="volume" title="Громкость">
+        <span aria-hidden="true">🔊</span>
+        <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Громкость">
+      </label>
+    </div>
+    <div id="notice" class="notice" aria-live="polite"></div>
+  </div>
+  <audio id="audio" preload="none"></audio>
+  <script src="player-v8.js"></script>
+</body>
+</html>

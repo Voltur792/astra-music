@@ -1,0 +1,10 @@
+# Build artifacts
+*.astraplugin
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+ui/easyvk/node_modules/
+# Service tokens live here — never commit.
+data/
