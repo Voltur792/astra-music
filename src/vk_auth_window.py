@@ -10,6 +10,7 @@ to a log or returned to the plugin UI.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -491,13 +492,14 @@ def main() -> int:
     threading.Thread(target=watch_login, name="vk-auth-watch", daemon=True).start()
 
     try:
-        # Start every explicit sign-in in a clean InPrivate profile so an
-        # expired WebView cookie cannot make the watcher accept the old account
-        # and close the window before the user can sign in again. The verified
-        # cookies are exported while the window is open and stored by the plugin.
+        data_dir = Path(os.environ.get("ASTRA_MUSIC_DATA_DIR") or
+                        str(Path(os.environ.get("APPDATA", str(Path.home()))) / "music-controller"))
+        profile_dir = data_dir / "vk-browser-profile"
+        profile_dir.mkdir(parents=True, exist_ok=True)
         webview.start(
             debug=False,
-            private_mode=True,
+            private_mode=False,
+            storage_path=str(profile_dir),
         )
     except Exception as exc:
         if not completed.is_set():

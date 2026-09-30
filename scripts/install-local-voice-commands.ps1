@@ -1,5 +1,7 @@
 param(
     [switch]$Apply,
+    [switch]$OnlyVkLibrary,
+    [switch]$AllowRunning,
     [string]$ConfigPath = ""
 )
 
@@ -14,9 +16,15 @@ if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
     throw "Файл команд Astra не найден: $ConfigPath"
 }
 
-$commands = @(Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json)
+$commandJson = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8
+if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) {
+    $commands = @(ConvertFrom-Json -InputObject $commandJson -DateKind String)
+} else {
+    $commands = @(ConvertFrom-Json -InputObject $commandJson)
+}
 $now = [DateTime]::UtcNow.ToString('o')
 $definitions = [System.Collections.Generic.List[object]]::new()
+$definitions.Add([pscustomobject]@{ Name = 'Музыка — мои треки ВК'; Id = ''; Action = 'vk_my_music'; Level = 0; Phrases = @('включи мою музыку в вк', 'включи мою музыку в vk', 'включи мои треки в вк', 'включи мои треки вк', 'включи мою музыку вк', 'включи мою музыку в контакте', 'включи мою музыку вконтакте', 'астра включи мою музыку в вк', 'астра астра включи мою музыку в вк') })
 
 $definitions.Add([pscustomobject]@{ Name = 'Пауза'; Id = '89355751-e9af-4ffa-a781-f6edc332d5df'; Action = 'pause'; Level = 0; Phrases = @('поставь паузу', 'пауза', 'астра пауза', 'астра, пауза', 'останови воспроизведение', 'pause') })
 $definitions.Add([pscustomobject]@{ Name = 'Плей'; Id = '22c47d00-b012-42e7-bf92-32effc89ecc4'; Action = 'play'; Level = 0; Phrases = @('воспроизведи', 'сними паузу', 'плей', 'продолжи воспроизведение', 'продолжи музыку', 'play') })
@@ -73,6 +81,9 @@ function New-MusicWorkflow {
 
 $created = 0
 $updated = 0
+if ($OnlyVkLibrary) {
+    $definitions = @($definitions | Where-Object { $_.Action -eq 'vk_my_music' })
+}
 foreach ($definition in $definitions) {
     $command = $null
     if ($definition.Id) {
@@ -131,12 +142,14 @@ if (-not $Apply) {
     Write-Output "Подготовлено: $updated существующих и $created новых команд. Для записи запустите с -Apply при закрытой Astra."
     return
 }
-if (Get-Process -Name Astra -ErrorAction SilentlyContinue) {
+if (-not $AllowRunning -and (Get-Process -Name Astra -ErrorAction SilentlyContinue)) {
     throw 'Закройте Astra перед записью commands.json: запущенное приложение может перезаписать изменения.'
 }
 
 $backup = "$ConfigPath.bak.music-controller.$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))"
 Copy-Item -LiteralPath $ConfigPath -Destination $backup -ErrorAction Stop
 $json = ConvertTo-Json -InputObject @($commands) -Depth 30
-[System.IO.File]::WriteAllText($ConfigPath, $json + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+$tempPath = "$ConfigPath.music-controller.$([Guid]::NewGuid().ToString('N')).tmp"
+[System.IO.File]::WriteAllText($tempPath, $json + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::Replace($tempPath, $ConfigPath, $backup)
 Write-Output "Записано: $updated существующих и $created новых команд Astra Music. Резервная копия: $backup"

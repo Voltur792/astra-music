@@ -22,7 +22,9 @@ certifi==2026.7.22
     #   httpx
     #   requests
 cffi==2.1.1
-    # via clr-loader
+    # via
+    #   clr-loader
+    #   soundcard
 charset-normalizer==3.5.1
     # via requests
 clr-loader==0.3.1
@@ -54,6 +56,10 @@ multidict==6.9.1
     # via
     #   aiohttp
     #   yarl
+numpy==2.5.3
+    # via
+    #   -r requirements.txt
+    #   soundcard
 propcache==0.5.4
     # via
     #   aiohttp
@@ -76,6 +82,8 @@ requests==2.34.2
     # via yandex-music
 setuptools==84.0.0
     # via grpcio-tools
+soundcard==0.4.6
+    # via -r requirements.txt
 typing-extensions==4.16.0
     # via
     #   anyio

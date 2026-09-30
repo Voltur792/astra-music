@@ -32,16 +32,21 @@ let pendingSeek = null;
 let volumeDragging = false;
 let likePending = false;
 let queueControlPending = false;
-let audioBands = null;
-let audioBandsUpdatedAt = 0;
 let audioBandsUnsubscribe = null;
 let visualFrameId = 0;
-let visualLevel = 0;
-let lastVisualStyleAt = 0;
+let visualSettings = { mode: "music", widget: true, background: false, style: "waves", intensity: .65 };
+let lastMeterPublishAt = 0;
+let meterPublishPending = false;
+let lastVisualDrawAt = 0;
 let meterContext = null;
 let meterAnalyser = null;
 let meterData = null;
 let lastMeterAttemptAt = 0;
+const spectrumCanvas = document.createElement("canvas");
+spectrumCanvas.className = "music-spectrum";
+spectrumCanvas.setAttribute("aria-hidden", "true");
+player.prepend(spectrumCanvas);
+const spectrum = new MusicSpectrum(spectrumCanvas);
 
 function setPlayerVisible(visible) {
   // Astra reserves this widget's space even when its contents are hidden.
@@ -53,12 +58,15 @@ function subscribeAudioBands() {
   if (audioBandsUnsubscribe || typeof bridge()?.requestAudioData !== "function") return;
   try {
     const unsubscribe = bridge().requestAudioData((data) => {
-      audioBands = data?.bands || data?.data || null;
-      audioBandsUpdatedAt = Date.now();
+      const bands = data?.bands || data?.data || data;
+      if (visualSettings.mode === "all" && visualSettings.widget) {
+        spectrum.sample(data, bands?.length && Math.max(...bands) > 1 ? 255 : 1);
+        if (!visualFrameId) visualFrameId = requestAnimationFrame(drawVisualFrame);
+      }
     });
     audioBandsUnsubscribe = typeof unsubscribe === "function" ? unsubscribe : () => {};
   } catch (_) {
-    // The animation still works gently when Astra does not provide audio bands.
+    // Without measured bands the renderer stays clear.
   }
 }
 
@@ -70,7 +78,7 @@ function releaseAudioMeter() {
 }
 
 function ensureLocalAudioMeter() {
-  if (meterAnalyser || Date.now() - lastMeterAttemptAt < 1500) return;
+  if (meterAnalyser || Date.now() - lastMeterAttemptAt < 250) return;
   lastMeterAttemptAt = Date.now();
   const capture = audio.captureStream || audio.mozCaptureStream;
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -79,69 +87,78 @@ function ensureLocalAudioMeter() {
   try {
     const stream = capture.call(audio);
     if (!stream?.getAudioTracks?.().length) return;
-    context = new AudioContextClass();
+    context = new AudioContextClass({ sampleRate: 48000 });
     const source = context.createMediaStreamSource(stream);
     const analyser = context.createAnalyser();
-    analyser.fftSize = 256;
-    analyser.smoothingTimeConstant = .7;
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = .1;
     source.connect(analyser);
     meterContext = context;
     meterAnalyser = analyser;
-    meterData = new Uint8Array(analyser.frequencyBinCount);
+    meterData = new Float32Array(analyser.frequencyBinCount);
     void context.resume().catch(() => {});
   } catch (_) {
     if (context) void context.close().catch(() => {});
   }
 }
 
+function sampleLocalAudio() {
+  const playing = Boolean(current && !audio.paused && !audio.ended);
+  const meterNeeded = playing && visualSettings.mode === "music" && (visualSettings.widget || visualSettings.background);
+  if (!meterNeeded && meterContext) releaseAudioMeter();
+  if (!meterNeeded) return;
+  ensureLocalAudioMeter();
+  if (playing && meterAnalyser && meterContext?.state === "running") {
+    meterAnalyser.getFloatFrequencyData(meterData);
+    const bands = musicFrequencyBands(meterData);
+    if (!window.MUSIC_AUDIO_HOST && visualSettings.widget) spectrum.sample(bands);
+    if (!meterPublishPending && Date.now() - lastMeterPublishAt >= 60) {
+      lastMeterPublishAt = Date.now();
+      meterPublishPending = true;
+      void call("music_visualizer_sample", { revision: current.revision, bands, position_seconds: audio.currentTime })
+        .catch(() => {}).finally(() => { meterPublishPending = false; });
+    }
+  }
+}
+
 function drawVisualFrame() {
   visualFrameId = 0;
-  if (!player.classList.contains("is-playing")) return;
-  ensureLocalAudioMeter();
-  let target = .24;
-  let localAudioLevel = 0;
-  if (meterAnalyser && meterContext?.state === "running") {
-    meterAnalyser.getByteFrequencyData(meterData);
-    let sum = 0;
-    const count = Math.min(32, meterData.length);
-    for (let index = 0; index < count; index += 1) sum += meterData[index];
-    localAudioLevel = count ? sum / count / 255 : 0;
-  }
-  if (localAudioLevel > .025) {
-    target = Math.min(1, localAudioLevel * 2.2);
-  } else if (audioBands?.length && Date.now() - audioBandsUpdatedAt < 1200) {
-    let sum = 0;
-    for (const band of audioBands) sum += Math.max(0, Number(band) || 0);
-    const average = sum / audioBands.length;
-    target = Math.min(1, average > 1 ? average / 100 : average);
-  }
-  visualLevel += (target - visualLevel) * .12;
-  if (Date.now() - lastVisualStyleAt > 100) {
-    lastVisualStyleAt = Date.now();
-    const duration = Math.max(2.2, 8.2 - visualLevel * 5.2);
-    player.style.setProperty("--music-flow-duration", `${duration.toFixed(2)}s`);
-    player.style.setProperty("--music-art-duration", `${(duration * 1.2).toFixed(2)}s`);
-    player.style.setProperty("--music-glow-opacity", String(.58 + visualLevel * .30));
-    player.style.setProperty("--music-glow-secondary", String(.42 + visualLevel * .26));
-    player.style.setProperty("--music-art-opacity", String(.58 + visualLevel * .32));
-  }
+  const playing = Boolean(current && !audio.paused && !audio.ended);
+  const widgetEnabled = !window.MUSIC_AUDIO_HOST && visualSettings.widget && (visualSettings.mode === "all" || (visualSettings.mode === "music" && playing));
+  spectrumCanvas.hidden = !widgetEnabled;
+  if (!widgetEnabled) { spectrum.clear(); return; }
+  if (widgetEnabled && Date.now() - lastVisualDrawAt > 33) { spectrum.draw(); lastVisualDrawAt = Date.now(); }
   visualFrameId = requestAnimationFrame(drawVisualFrame);
 }
 
 function setVisualPlaying(playing) {
   player.classList.toggle("is-playing", playing);
-  if (playing) {
-    player.classList.remove("is-starting");
+  if (playing) player.classList.remove("is-starting");
+  // A headless/background page can stop receiving animation frames. Sampling
+  // belongs to the audio clock below; only visible canvases use rendering frames.
+  if (window.MUSIC_AUDIO_HOST) { spectrumCanvas.hidden = true; return; }
+  if (playing || (visualSettings.mode === "all" && visualSettings.widget)) {
     subscribeAudioBands();
     if (!visualFrameId) visualFrameId = requestAnimationFrame(drawVisualFrame);
   } else {
     if (visualFrameId) cancelAnimationFrame(visualFrameId);
     visualFrameId = 0;
-    visualLevel = 0;
-    player.style.removeProperty("--music-glow-opacity");
-    player.style.removeProperty("--music-glow-secondary");
-    player.style.removeProperty("--music-art-opacity");
+    spectrum.clear();
+    spectrumCanvas.hidden = true;
+    releaseAudioMeter();
   }
+}
+
+let visualSettingsPending = false;
+async function syncVisualSettings() {
+  if (!bridge() || visualSettingsPending) return;
+  visualSettingsPending = true;
+  try {
+    visualSettings = { ...visualSettings, ...parse(await call("music_visualizer_get")) };
+    spectrum.setOptions(visualSettings);
+    setVisualPlaying(Boolean(current && !audio.paused && !audio.ended));
+  } catch (_) { /* keep the last confirmed local settings */ }
+  finally { visualSettingsPending = false; }
 }
 
 function bridge() {
@@ -597,10 +614,15 @@ setInterval(() => {
     void report("progress");
   }
 }, 250);
+const visualSettingsTimer = setInterval(syncVisualSettings, 750);
+const audioMeterTimer = setInterval(sampleLocalAudio, 40);
+void syncVisualSettings();
 setInterval(sync, 600);
 sync();
 window.addEventListener("beforeunload", () => {
   if (visualFrameId) cancelAnimationFrame(visualFrameId);
+  clearInterval(visualSettingsTimer);
+  clearInterval(audioMeterTimer);
   audioBandsUnsubscribe?.();
   releaseAudioMeter();
 });

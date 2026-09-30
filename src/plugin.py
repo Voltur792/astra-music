@@ -22,8 +22,33 @@ import httpx
 from astra_plugin_sdk import Field, NotConfigured, Plugin, action, tool, ui_call, ui_effect, ui_page
 from astra_plugin_sdk.capability_types import UiContribution
 from .tab_icon import TAB_ICON_SVG
+from .playback_host import PlaybackHost
+from .system_audio import SystemAudio
 
 log = logging.getLogger("astra-music")
+
+VISUALIZER_DEFAULTS = {"mode": "music", "widget": True, "background": False, "style": "waves", "intensity": 0.65}
+VISUALIZER_STYLES = {"spectrum", "waves", "liquid", "ripple", "ribbon", "orbit", "particles", "mesh", "binary", "terrain", "silk", "splash", "rain", "contour"}
+
+
+def _visualizer_settings(value: Any) -> dict[str, Any]:
+    settings = dict(VISUALIZER_DEFAULTS)
+    if not isinstance(value, dict):
+        return settings
+    if value.get("mode") in {"off", "all", "music"}:
+        settings["mode"] = value["mode"]
+    if value.get("style") in VISUALIZER_STYLES:
+        settings["style"] = value["style"]
+    for key in ("widget", "background"):
+        if isinstance(value.get(key), bool):
+            settings[key] = value[key]
+    try:
+        intensity = float(value.get("intensity", settings["intensity"]))
+        if 0.2 <= intensity <= 1.0:
+            settings["intensity"] = intensity
+    except (ValueError, TypeError):
+        pass
+    return settings
 
 
 @dataclass
@@ -770,9 +795,17 @@ class AstraMusic(Plugin):
         self.settings_file = self.data_dir / "settings.json"
         self.playback_selection_file = self.data_dir / "playback-selection.json"
         self._settings_lock = threading.Lock()
+        self._audio_host = PlaybackHost(self)
+        self._system_audio = SystemAudio()
+        self._visualizer_settings = _visualizer_settings(self._read_settings().get("visualizer"))
+        self._music_audio_bands: list[float] = []
+        self._music_audio_sample_at = 0.0
+        self._music_audio_sample_revision = -1
         self._playback_lock = threading.RLock()
         self._easyvk_lock = threading.RLock()
         self._vk_oauth_job_lock = threading.Lock()
+        self._vk_music_job_lock = threading.Lock()
+        self._vk_music_job: dict[str, Any] = {"job_id": "", "status": "idle"}
         self._vk_oauth_job: dict[str, Any] = {
             "job_id": "",
             "status": "idle",
@@ -782,8 +815,8 @@ class AstraMusic(Plugin):
         }
         self._vk_stream_cache: dict[str, tuple[str, float]] = {}
         self.clients: dict[str, MusicClient] = {}
-        # The background.front contribution survives navigation between Astra
-        # pages, unlike the music page iframe. Keep its current stream here.
+        # The persistent native audio process owns the stream; visible iframes
+        # only send commands and display this shared state.
         self._playback_revision = 0
         self._playback_command_revision = 0
         self._playback_state_probe_logged_revision: int | None = None
@@ -1548,6 +1581,7 @@ class AstraMusic(Plugin):
                 title=item.get("title", ""),
                 artist=item.get("artist", ""),
                 search_query=extra.get("search_query", ""),
+                reload_id=extra.get("reload_id", ""),
                 playlist_owner_id=extra.get("playlist_owner_id", ""),
                 playlist_id=extra.get("playlist_id", ""),
                 playlist_access_hash=extra.get("playlist_access_hash", ""),
@@ -1601,6 +1635,7 @@ class AstraMusic(Plugin):
                 "radio_batch_id": "",
             }
         log.info("VK playback stream resolved (revision %s)", revision)
+        self._audio_host.ensure()
         return {
             "success": True,
             "playing": False,
@@ -1639,6 +1674,8 @@ class AstraMusic(Plugin):
         return self._start_vk_queue_sync([track], auto_play=auto_play)
 
     def _start_vk_playlist_sync(self, playlist_id: str, playlist_name: str = "") -> dict[str, Any]:
+        if playlist_id == "audio" or (playlist_name or "").strip().casefold() in {"моя музыка", "мои треки"}:
+            return self._start_vk_my_music_sync()
         if not self._vk_cookie_file.is_file():
             raise MusicError("Для встроенных VK-плейлистов сначала войдите в VK через кнопку в карточке сервиса.")
         playlists = self._playlists_sync("vk").get("playlists", [])
@@ -1680,6 +1717,43 @@ class AstraMusic(Plugin):
         playback = self._start_vk_queue_sync(tracks, source="playlist", source_title=title, auto_play=True)
         playback["playlist_id"] = found_id
         return playback
+
+    def _start_vk_my_music_sync(self) -> dict[str, Any]:
+        if not self._vk_cookie_file.is_file():
+            raise MusicError("Сначала войдите в VK во вкладке «Музыка».")
+        result = self._easyvk_call_sync("my_tracks")
+        tracks = [self._vk_track_from_easyvk(row) for row in result.get("tracks", []) if isinstance(row, dict)]
+        return self._start_vk_queue_sync(tracks, source="library", source_title="Мои треки", auto_play=True)
+
+    def _start_vk_music_job(self) -> dict[str, Any]:
+        # CallFromUi has a 10s bridge deadline, regardless of tool timeouts.
+        # Network work must continue outside that request.
+        with self._vk_music_job_lock:
+            if self._vk_music_job.get("status") == "loading":
+                return dict(self._vk_music_job)
+            job_id = f"vk-music-{time.time_ns()}"
+            self._vk_music_job = {"job_id": job_id, "status": "loading", "message": "Загружаю мои треки ВК…"}
+
+        def load() -> None:
+            try:
+                result = self._start_vk_my_music_sync()
+                log.info("VK personal library prepared: %s tracks, revision %s", result.get("queue_count"), result.get("revision"))
+                update = {"status": "ready", "result": result}
+            except Exception as exc:
+                log.error("VK library preparation failed: %s", type(exc).__name__)
+                update = {"status": "failed", "error": str(exc)}
+            with self._vk_music_job_lock:
+                if self._vk_music_job.get("job_id") == job_id:
+                    self._vk_music_job.update(update)
+
+        threading.Thread(target=load, name="vk-library-start", daemon=True).start()
+        return {"job_id": job_id, "status": "loading", "message": "Загружаю мои треки ВК…"}
+
+    def _vk_music_job_status(self, job_id: str) -> dict[str, Any]:
+        with self._vk_music_job_lock:
+            if self._vk_music_job.get("job_id") != job_id:
+                return {"status": "failed", "error": "Запрос заменён новым запуском музыки."}
+            return dict(self._vk_music_job)
 
     def _start_yandex_queue_sync(
         self,
@@ -1790,6 +1864,7 @@ class AstraMusic(Plugin):
                 "radio_batch_id": item.get("radio_batch_id", ""),
             }
         log.info("Yandex playback stream resolved (revision %s)", revision)
+        self._audio_host.ensure()
         return {
             "success": True,
             "playing": False,
@@ -2029,6 +2104,8 @@ class AstraMusic(Plugin):
             elif command == "play":
                 self._playback_state["status"] = "play_requested"
                 self._playback_state["playback_error"] = ""
+        if command == "play":
+            self._audio_host.ensure()
         return {
             "success": True,
             "action": action,
@@ -2451,6 +2528,9 @@ class AstraMusic(Plugin):
         if service == "vk":
             self._vk_cookie_file.unlink(missing_ok=True)
             self._vk_stream_cache.clear()
+            profile = (self.data_dir / "vk-browser-profile").resolve()
+            if profile.is_relative_to(self.data_dir.resolve()) and profile.is_dir():
+                shutil.rmtree(profile)
         self._load_clients()
         return {"success": True, "service": service, "configured": False}
 
@@ -2474,7 +2554,8 @@ class AstraMusic(Plugin):
                 self._remember_connection(resolved, connection)
                 return connection
             except Exception as exc:
-                self._mark_vk_session_invalid()
+                if "VK_SESSION_EXPIRED:" in str(exc):
+                    self._mark_vk_session_invalid()
                 return {
                     "error": str(exc),
                     "service": resolved,
@@ -2672,6 +2753,15 @@ class AstraMusic(Plugin):
             playlist_id=str(args.get("playlist_id") or ""),
             playlist_name=str(args.get("playlist_name") or args.get("_raw") or ""),
         )
+
+    @tool("Play ALL the user's own VK Music tracks in their default VK order. Use for 'включи мою музыку в ВК' or 'включи мои треки', without choosing a named playlist. Report success only if playing=true; otherwise report the real playback status.")
+    async def play_vk_my_music(self) -> dict[str, Any]:
+        return await self.play_playlist(service="vk", playlist_id="audio")
+
+    @action("Музыка: включить мои треки ВК")
+    async def music_vk_my_music(self) -> dict[str, Any]:
+        log.info("Local voice action requested VK personal library")
+        return self._start_vk_music_job()
 
     @tool("PLAY a named Yandex Music playlist NOW inside Astra. Call this tool when the user asks to start one of their Yandex playlists. Pass its exact name in playlist_name; no prior list call is required. Only say it started when playing=true is returned.")
     async def play_yandex_playlist(self, playlist_name: str = "", playlist_id: str = "", kwargs: str = "") -> dict[str, Any]:
@@ -2917,22 +3007,22 @@ class AstraMusic(Plugin):
         contributions = await super().get_ui_contributions()
         contributions.append(
             UiContribution(
-                id="music-home-player-v10",
+                id="music-home-player-v13",
                 slot="home.widgets",
-                url="player-v12.html",
+                url="player-remote.html" if self._audio_host.enabled else "player-v12.html",
                 height=168,
                 transparent=True,
-                props={"audio": "true"},
+                props={} if self._audio_host.enabled else {"audio": "true"},
             )
         )
         for contribution in contributions:
             if contribution.id == "music":
                 contribution.transparent = True
             elif contribution.id == "music-visualizer":
-                contribution.slot = "background.front"
+                contribution.slot = "background.behind"
                 contribution.transparent = True
                 contribution.pointer_events = False
-                contribution.props = {"audio": "true"}
+                contribution.props = {}
         log.info("Registered UI contributions: %s", ", ".join(
             f"{item.id}@{item.slot}:{item.url}" for item in contributions
         ))
@@ -2942,6 +3032,67 @@ class AstraMusic(Plugin):
     #
     # Handlers run on the daemon's event loop, so each one goes through
     # `_guarded`: a slow network call must not freeze Astra's window.
+
+    @ui_call("music_visualizer_get")
+    async def ui_visualizer_get(self, **params: Any) -> dict[str, Any]:
+        return dict(self._visualizer_settings)
+
+    @ui_call("music_visualizer_set")
+    async def ui_visualizer_set(self, **params: Any) -> dict[str, Any]:
+        value = params.get("settings")
+        if not isinstance(value, dict):
+            return {"error": "Не переданы настройки цветомузыки."}
+        updated = _visualizer_settings({**self._visualizer_settings, **value})
+        with self._settings_lock:
+            try:
+                stored = json.loads(self.settings_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                stored = {}
+            stored["visualizer"] = updated
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            temporary = self.settings_file.with_suffix(".visualizer.tmp")
+            temporary.write_text(json.dumps(stored, ensure_ascii=False, indent=2), encoding="utf-8")
+            temporary.replace(self.settings_file)
+            self._visualizer_settings = updated
+        if updated["mode"] != "all" or not (updated["widget"] or updated["background"]):
+            self._system_audio.pause()
+        return dict(updated)
+
+    @ui_call("music_visualizer_state")
+    async def ui_visualizer_state(self, **params: Any) -> dict[str, Any]:
+        settings = dict(self._visualizer_settings)
+        system_enabled = settings["mode"] == "all" and (settings["widget"] or settings["background"])
+        if system_enabled:
+            self._system_audio.start()
+        else:
+            self._system_audio.pause()
+        with self._playback_lock:
+            playing = self._playback_state.get("status") == "playing" and bool(self._playback_state.get("url"))
+            revision = self._playback_state.get("revision", 0)
+            fresh = (playing and self._music_audio_sample_revision == revision
+                     and time.monotonic() - self._music_audio_sample_at < 0.8)
+            bands = self._system_audio.snapshot() if system_enabled else list(self._music_audio_bands) if fresh else []
+            return {"settings": settings, "playing": playing,
+                    "revision": revision, "bands": bands,
+                    "audio_error": self._system_audio.error if system_enabled else ""}
+
+    @ui_call("music_visualizer_sample")
+    async def ui_visualizer_sample(self, **params: Any) -> dict[str, Any]:
+        bands = params.get("bands")
+        if not isinstance(bands, list) or len(bands) > 128:
+            return {"accepted": False}
+        try:
+            values = [max(0.0, min(1.0, float(value))) for value in bands]
+        except (ValueError, TypeError):
+            return {"accepted": False}
+        with self._playback_lock:
+            if (params.get("revision") != self._playback_state.get("revision")
+                    or self._playback_state.get("status") != "playing"):
+                return {"accepted": False}
+            self._music_audio_bands = values
+            self._music_audio_sample_at = time.monotonic()
+            self._music_audio_sample_revision = params["revision"]
+        return {"accepted": True}
 
     @ui_call("music_save_token")
     async def ui_save_token(self, **params: Any) -> dict[str, Any]:
@@ -3009,6 +3160,14 @@ class AstraMusic(Plugin):
             str(params.get("playlist_id", "") or ""),
             self._as_int(params.get("limit"), 50, 1, 100),
         )
+
+    @ui_call("music_play_vk_my_music")
+    async def ui_play_vk_my_music(self, **params: Any) -> dict[str, Any]:
+        return self._start_vk_music_job()
+
+    @ui_call("music_vk_my_music_status")
+    async def ui_vk_my_music_status(self, **params: Any) -> dict[str, Any]:
+        return self._vk_music_job_status(str(params.get("job_id", "")))
 
     @ui_call("music_play_playlist")
     async def ui_play_playlist(self, **params: Any) -> dict[str, Any]:
@@ -3216,6 +3375,8 @@ class AstraMusic(Plugin):
         )
 
     async def on_shutdown(self) -> None:
+        self._audio_host.close()
+        self._system_audio.close()
         for client in self.clients.values():
             client.close()
         self.clients.clear()

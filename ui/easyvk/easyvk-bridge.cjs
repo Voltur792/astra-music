@@ -12,6 +12,7 @@ const HTMLParser = runtimeRequire("node-html-parser");
 const fileCookieStoreModule = runtimeRequire("tough-cookie-file-store");
 const FileCookieStore = fileCookieStoreModule.FileCookieStore || fileCookieStoreModule.default || fileCookieStoreModule;
 const RESULT_PREFIX = "ASTRA_EASYVK_RESULT:";
+const { identity, normalizeAudios, ownTracks } = require("./audio-identity.cjs");
 let requestInput = {};
 
 function emit(value) {
@@ -165,6 +166,11 @@ async function verifyWebSession(cookiePath) {
           signal: AbortSignal.timeout(12000),
         });
         const location = response.headers.get("location");
+        // Preserve cookies rotated by VK instead of keeping the original
+        // sign-in export forever. FileCookieStore persists session cookies too.
+        for (const cookie of response.headers.getSetCookie()) {
+          await jar.setCookie(cookie, url.href);
+        }
         if (response.status >= 300 && response.status < 400 && location) {
           const next = new URL(location, url);
           if (!isVkHost(next.hostname)) {
@@ -199,10 +205,10 @@ async function verifyWebSession(cookiePath) {
     }
     if (!tryOtherDomain) failures.push("VK перенаправлял проверку сессии слишком много раз.");
   }
-  if (failures.some(message => /страницу входа/i.test(message))) {
-    throw new Error("VK перенаправил обе проверки на страницу входа. Проверьте вход и попробуйте снова.");
+  if (failures.filter(message => /страницу входа|нет remixsid/i.test(message)).length >= 2) {
+    throw new Error("VK_SESSION_EXPIRED: VK больше не принимает сохранённую сессию. Войдите снова через VK.");
   }
-  throw new Error("VK не подтвердил сессию ни через vk.com, ни через vk.ru. Нажмите «Войти через VK» и авторизуйтесь заново.");
+  throw new Error("Не удалось проверить сессию VK. Проверьте интернет и повторите проверку; сохранённый вход оставлен на месте.");
 }
 
 function cleanTrack(audio) {
@@ -223,7 +229,14 @@ function cleanTrack(audio) {
     duration_seconds: Number(audio.duration || 0),
     url: `https://vk.com/audio${ownerId}_${id}`,
     cover_url: String(cover || ""),
-    extra: { owner_id: ownerId, access_key: String(audio.access_key || audio.accessKey || "") },
+    extra: {
+      owner_id: ownerId,
+      access_key: String(audio.access_key || audio.accessKey || ""),
+      reload_id: (() => {
+        const hashes = String(audio.raw?.[13] || "").split("/");
+        return hashes[2] && hashes[5] ? `${ownerId}_${id}_${hashes[2]}_${hashes[5]}` : "";
+      })(),
+    },
     stream_url: String(audio.url || ""),
   };
 }
@@ -326,6 +339,15 @@ async function main() {
   const credits = { cookies: cookiePath };
   if (userId) credits.user = userId;
   const api = await new AudioAPI(token || "browser-session").login(credits);
+  for (const audio of [api.audio, api.playlists.AudioRequests]) {
+    audio.normalize = normalizeAudios;
+    audio.getById = async function (params) {
+      const response = await this.request({ act: "reload_audio", al: 1, ids: params.ids });
+      const rows = response?.payload?.[1]?.[0];
+      if (!Array.isArray(rows)) throw new Error("VK не вернул ссылки на выбранные треки.");
+      return rows;
+    };
+  }
   if (session.validated_host === "vk.ru") {
     // EasyVK hardcodes vk.com for al_audio.php. VK may issue a working session
     // only on vk.ru, while the same cookies redirect to login.vk.com. Use the
@@ -391,6 +413,13 @@ async function main() {
     return;
   }
 
+  if (operation === "my_tracks") {
+    const rows = await ownTracks(api, userId);
+    const tracks = rows.map(cleanTrack).filter(Boolean);
+    emit({ success: true, account, tracks });
+    return;
+  }
+
   if (operation === "playlist_tracks") {
     const ownerId = Number(input.owner_id);
     const playlistId = Number(input.playlist_id);
@@ -418,9 +447,15 @@ async function main() {
     if (!trackId || !ownerId) throw new Error("Для потока нужны ID трека и владельца.");
     const matches = item => String(item?.id) === trackId && String(item?.owner_id) === ownerId;
     let audio;
+    const reloadId = String(input.reload_id || "");
+    if (reloadId.startsWith(`${ownerId}_${trackId}_`) && /^[\w-]+$/.test(reloadId)) {
+      const rows = await api.audio.getById({ ids: reloadId });
+      const row = rows.find(row => identity(row) === `${ownerId}_${trackId}`);
+      if (row) audio = api.audio.getAudioAsObject(row);
+    }
     const playlistOwnerId = Number(input.playlist_owner_id);
     const playlistId = Number(input.playlist_id);
-    if (Number.isSafeInteger(playlistOwnerId) && playlistOwnerId !== 0 &&
+    if (!audio?.url && Number.isSafeInteger(playlistOwnerId) && playlistOwnerId !== 0 &&
         Number.isSafeInteger(playlistId) && playlistId > 0) {
       try {
         const playlist = await api.playlists.getPlaylist({

@@ -8,3 +8,6 @@ __pycache__/
 ui/easyvk/node_modules/
 # Service tokens live here — never commit.
 data/
+/.test-tmp/
+/.test-final/
+/native-host-data/

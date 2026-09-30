@@ -61,13 +61,39 @@
       <div class="row">
         <button type="button" id="playlistBtn">Показать плейлисты выбранного сервиса</button>
         <button type="button" id="radioBtn">Включить «Мою волну»</button>
+        <button type="button" id="myVkMusicBtn">Включить мои треки ВК</button>
       </div>
       <div id="playlists" class="list"></div>
       <div id="playlistTracks" class="list"></div>
     </section>
 
-    <section class="card" aria-label="Запуск музыки во внешнем плеере">
-      <h2>Открытие внешнего плеера</h2>
+    <section class="card visualizer-settings" id="visualizerSettings" aria-labelledby="visualizerHeading">
+      <div class="visualizer-heading">
+        <h2 id="visualizerHeading">Цветомузыка</h2>
+        <button type="button" id="visualizerSaveStatus" class="visualizer-save" aria-live="polite">Загрузка настроек…</button>
+      </div>
+      <fieldset disabled>
+        <legend class="visually-hidden">Настройки цветомузыки</legend>
+        <div class="visualizer-mode" role="group" aria-label="Когда включать цветомузыку" data-visualizer-group>
+          <button type="button" data-visualizer-mode="off" aria-pressed="false">Выключена</button>
+          <button type="button" data-visualizer-mode="all" aria-pressed="false">Все звуки</button>
+          <button type="button" data-visualizer-mode="music" aria-pressed="true">Только музыка</button>
+        </div>
+        <div class="visualizer-placements">
+          <label class="visualizer-switch"><input type="checkbox" id="visualizerWidget" checked><span class="visualizer-switch-track" aria-hidden="true"></span><span>В виджете плеера</span></label>
+          <label class="visualizer-switch"><input type="checkbox" id="visualizerBackground"><span class="visualizer-switch-track" aria-hidden="true"></span><span>На фоне Astra</span></label>
+        </div>
+        <div class="visualizer-label">Визуализация <span class="hint">предпросмотр</span></div>
+        <div class="visualizer-styles" id="visualizerStyles" role="group" aria-label="Вид визуализации" data-visualizer-group></div>
+        <div class="visualizer-intensity">
+          <label for="visualizerIntensity">Интенсивность</label>
+          <input id="visualizerIntensity" type="range" min="0.2" max="1" step="0.05" value="0.65">
+          <output id="visualizerIntensityValue" for="visualizerIntensity">65%</output>
+        </div>
+      </fieldset>
+    </section>
+    <details class="card external-player-settings">
+      <summary>Внешний плеер — дополнительные настройки</summary><div class="external-player-body">
       <p class="hint">
         Эта настройка относится к кнопке «Открыть». Для воспроизведения VK внутри Astra
         подключите токен и локальную сессию в карточке сервиса выше.
@@ -78,7 +104,8 @@
         <ul class="menu" id="modeMenu" role="listbox" aria-label="Куда отправлять трек" hidden></ul>
       </div>
       <div id="desktop" class="hint"></div>
-    </section>
+      </div>
+    </details>
 
     <div id="linkBox" class="card link" hidden>
       <p class="hint">Ссылка не открылась сама — скопируйте её:</p>
@@ -89,5 +116,7 @@
   <footer id="message" class="bar message" role="status"></footer>
 </main>
 <script src="script.js"></script>
+<script src="audio-spectrum.js"></script>
+<script src="visualizer-settings.js"></script>
 </body>
 </html>

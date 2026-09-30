@@ -12,11 +12,7 @@ body { color-scheme: dark; color: var(--color-text, #f7f0ff); font-family: var(-
   background: color-mix(in srgb, #6521aa 22%, transparent);
 }
 .player.is-playing {
-  background: linear-gradient(125deg,
-    rgba(29, 132, 161, .66), rgba(98, 34, 169, .64),
-    rgba(26, 169, 132, .62), rgba(127, 40, 165, .67));
-  background-size: 260% 260%;
-  animation: music-card-flow var(--music-flow-duration, 6s) ease-in-out infinite alternate;
+  background: rgba(42, 22, 70, .48);
 }
 .player.is-playing.has-artwork { background: rgba(42, 22, 70, .48); animation: none; }
 .artwork-glow {
@@ -27,8 +23,7 @@ body { color-scheme: dark; color: var(--color-text, #f7f0ff); font-family: var(-
   will-change: transform, opacity;
 }
 .player.is-playing.has-artwork .artwork-glow {
-  opacity: var(--music-art-opacity, .75);
-  animation: artwork-drift var(--music-art-duration, 7s) ease-in-out infinite alternate;
+  display: none;
 }
 .player::before, .player::after {
   content: ""; position: absolute; inset: -22%; z-index: 0;
@@ -47,15 +42,14 @@ body { color-scheme: dark; color: var(--color-text, #f7f0ff); font-family: var(-
     radial-gradient(ellipse at 30% 82%, rgba(230, 64, 218, .8), transparent 42%);
 }
 .player > :not(.artwork-glow) { position: relative; z-index: 1; }
+.player > .music-spectrum { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
 .player.has-artwork::before, .player.has-artwork::after { display: none; }
 .player.is-starting::before { opacity: .34; }
 .player.is-playing::before {
-  opacity: var(--music-glow-opacity, .7);
-  animation: music-flow-a var(--music-flow-duration, 4.2s) ease-in-out infinite alternate;
+  display: none;
 }
 .player.is-playing::after {
-  opacity: var(--music-glow-secondary, .55);
-  animation: music-flow-b var(--music-art-duration, 5.5s) ease-in-out infinite alternate;
+  display: none;
 }
 @keyframes music-flow-a {
   from { transform: translate3d(-13%, 7%, 0) rotate(-10deg) scale(1.02); }

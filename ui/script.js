@@ -840,6 +840,53 @@
 
   // --- init -----------------------------------------------------------------
 
+  $("myVkMusicBtn").addEventListener("click", async () => {
+    const button = $("myVkMusicBtn");
+    button.disabled = true;
+    message("Загружаю мои треки ВК в исходном порядке…");
+    try {
+      const started = await callBackend("music_play_vk_my_music");
+      if (started.error) throw new Error(started.error);
+      if (!started.job_id) throw new Error("Плагин не вернул номер запуска. Перезапустите Astra после обновления.");
+      let result;
+      for (let attempt = 0; attempt < 180; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 750));
+        const job = await callBackend("music_vk_my_music_status", { job_id: started.job_id });
+        if (job.error || job.status === "failed") throw new Error(job.error || "Не удалось загрузить мои треки ВК.");
+        if (job.status === "ready") { result = job.result; break; }
+        message(job.message || "Загружаю мои треки ВК…");
+      }
+      if (!result) throw new Error("Загрузка ВК занимает слишком много времени. Проверьте интернет и повторите.");
+      if (result.error) throw new Error(result.error);
+      const track = result.track || {};
+      $("playerTitle").textContent = "VK · Мои треки";
+      $("playerSubtitle").textContent = [track.artist, track.title].filter(Boolean).join(" — ");
+      $("playerCard").hidden = false;
+      state.selectedTrack = { service: "vk", ...track };
+      persistUiState();
+      // Preparing a stream is not proof that the browser started playing it.
+      let playback;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        playback = await callBackend("music_playback_state");
+        if (Number(playback.revision) !== Number(result.revision)) break;
+        if (["playing", "blocked", "failed"].includes(playback.status)) break;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      if (Number(playback?.revision) !== Number(result.revision)) throw new Error("Плеер переключился на другой запрос.");
+      if (playback.status === "playing") {
+        message("Играют мои треки ВК (" + (result.queue_count || 0) + " треков).", "good");
+      } else if (playback.status === "blocked") {
+        message("Мои треки ВК загружены, но Astra заблокировала автозапуск. Нажмите ▶ в музыкальном виджете на главной странице.", "bad");
+      } else {
+        message("Мои треки ВК загружены. Откройте главную страницу и нажмите ▶ в музыкальном виджете.", "");
+      }
+    } catch (error) {
+      message(error.message, "bad");
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   const serviceDropdown = dropdown($("serviceTrigger"), $("serviceMenu"), SERVICES, state.service, (id) => {
     if (state.service === id) return;
     state.service = id;

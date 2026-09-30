@@ -33,6 +33,8 @@ def never_really_open_anything(monkeypatch):
     """Никаких реальных браузеров и плееров из тестов."""
     monkeypatch.setattr(P, "open_in_browser", lambda url: False)
     monkeypatch.setattr(P, "open_in_desktop_player", lambda service, link: False)
+    monkeypatch.setattr(P.PlaybackHost, "ensure", lambda self: None)
+    monkeypatch.setattr(P.SystemAudio, "start", lambda self: None)
 
 
 @pytest.fixture(autouse=True)
@@ -81,6 +83,7 @@ def test_every_declared_tool_is_routed_and_its_schema_is_an_object():
             "open_track",
             "play_playlist",
             "play_track",
+            "play_vk_my_music",
             "play_vk_playlist",
             "play_yandex_playlist",
             "play_yandex_radio",
@@ -97,6 +100,7 @@ def test_every_declared_tool_is_routed_and_its_schema_is_an_object():
             assert "kwargs" in h.schema(name)["properties"] or name in {
                 "connection_status",
                 "list_vk_playlists",
+                "play_vk_my_music",
             }
 
 
@@ -108,8 +112,9 @@ def test_the_tab_and_the_visualizer_are_both_contributed():
         # Astra fills an opaque background behind a non-transparent iframe.
         assert by_id["music"].transparent is True
         assert by_id["music-visualizer"].transparent is True
+        assert by_id["music-visualizer"].slot == "background.behind"
         assert by_id["music-visualizer"].pointer_events is False
-        assert by_id["music-visualizer"].props.get("audio") == "true"
+        assert not by_id["music-visualizer"].props.get("audio")
 
 
 def test_no_config_the_daemon_can_deliver_crashes_this_plugin():
@@ -495,3 +500,209 @@ def test_remove_token_forgets_the_service():
     plugin._write_settings({"vk": {"token": "***"}})
     assert plugin._remove_token_sync("vk")["configured"] is False
     assert plugin._read_settings() == {}
+
+
+def test_vk_library_starts_in_default_order_and_advances_to_distinct_stream(monkeypatch):
+    plugin = AstraMusic()
+    plugin.data_dir.mkdir(parents=True)
+    plugin._vk_cookie_file.write_text("{}")
+    calls = []
+
+    def bridge(operation, **params):
+        calls.append((operation, params))
+        if operation == "my_tracks":
+            return {"tracks": [
+                {"track_id": "1", "title": "First", "extra": {"owner_id": "9", "reload_id": "9_1_a_b"}},
+                {"track_id": "2", "title": "Second", "extra": {"owner_id": "9", "reload_id": "9_2_c_d"}},
+            ]}
+        return {"stream_url": f"https://audio.vkuseraudio.net/{params['track_id']}/index.m3u8"}
+
+    monkeypatch.setattr(plugin, "_easyvk_call_sync", bridge)
+    started = plugin._start_vk_playlist_sync("audio")
+    first_url = plugin._playback_state["url"]
+    assert started["source_title"] == "Мои треки"
+    assert started["queue_count"] == 2
+    assert plugin._playback_state["track_id"] == "1"
+    plugin._advance_yandex_queue_sync(1)
+    assert plugin._playback_state["track_id"] == "2"
+    assert plugin._playback_state["url"] != first_url
+    assert calls[-1][1]["reload_id"] == "9_2_c_d"
+
+
+def test_vk_network_failure_preserves_saved_session(monkeypatch):
+    plugin = AstraMusic()
+    plugin.data_dir.mkdir(parents=True)
+    plugin._vk_cookie_file.write_text("{}")
+    plugin._write_settings({"vk": {"user_id": "9", "session_valid": True}})
+
+    def failed(*args, **kwargs):
+        raise P.MusicError("Не удалось проверить сессию VK. Проверьте интернет.")
+
+    monkeypatch.setattr(plugin, "_easyvk_call_sync", failed)
+    assert plugin._test_connection_sync("vk")["connected"] is False
+    assert plugin._read_settings()["vk"]["session_valid"] is True
+
+    def expired(*args, **kwargs):
+        raise P.MusicError("VK_SESSION_EXPIRED: Войдите снова")
+
+    monkeypatch.setattr(plugin, "_easyvk_call_sync", expired)
+    plugin._test_connection_sync("vk")
+    assert plugin._read_settings()["vk"]["session_valid"] is False
+
+
+def test_vk_library_ui_returns_before_slow_network_and_deduplicates_launch(monkeypatch):
+    import threading
+    import time
+
+    plugin = AstraMusic()
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def slow_start():
+        calls.append(1)
+        entered.set()
+        assert release.wait(5)
+        return {"success": True, "revision": 7, "queue_count": 1511}
+
+    monkeypatch.setattr(plugin, "_start_vk_my_music_sync", slow_start)
+    try:
+        with Harness(plugin) as h:
+            before = time.monotonic()
+            result = h.ui_call("music_play_vk_my_music").json
+            assert time.monotonic() - before < 1
+            assert result["status"] == "loading"
+            assert entered.wait(1)
+            repeated = h.ui_call("music_play_vk_my_music").json
+            assert repeated["job_id"] == result["job_id"]
+            assert calls == [1]
+            status = h.ui_call("music_vk_my_music_status", job_id=result["job_id"]).json
+            assert status["status"] == "loading"
+            release.set()
+            for _ in range(100):
+                status = h.ui_call("music_vk_my_music_status", job_id=result["job_id"]).json
+                if status["status"] == "ready":
+                    break
+                time.sleep(.01)
+            assert status["result"]["queue_count"] == 1511
+    finally:
+        release.set()
+
+
+def test_vk_library_preparation_error_is_returned_by_job_status(monkeypatch):
+    import time
+
+    plugin = AstraMusic()
+
+    def failed():
+        raise P.MusicError("VK не подтвердил сохранённый вход")
+
+    monkeypatch.setattr(plugin, "_start_vk_my_music_sync", failed)
+    started = plugin._start_vk_music_job()
+    for _ in range(100):
+        status = plugin._vk_music_job_status(started["job_id"])
+        if status["status"] == "failed":
+            break
+        time.sleep(.01)
+    assert status["status"] == "failed"
+    assert "сохранённый вход" in status["error"]
+    assert plugin._vk_music_job_status("wrong-job")["status"] == "failed"
+
+
+def test_vk_library_voice_action_routes_to_same_background_launch(monkeypatch):
+    plugin = AstraMusic()
+    monkeypatch.setattr(plugin, "_start_vk_music_job", lambda: {"job_id": "voice-job", "status": "loading"})
+    with Harness(plugin) as h:
+        result = h.execute_action("music_vk_my_music")
+        assert result.success, result.error
+        assert result.json == {"job_id": "voice-job", "status": "loading"}
+
+
+def test_visualizer_defaults_and_preferences_survive_restart_without_changing_accounts():
+    plugin = AstraMusic()
+    plugin._write_settings({"vk": {"user_id": "9", "session_valid": True}, "playback_volume": .4})
+    with Harness(plugin) as h:
+        defaults = h.ui_call("music_visualizer_get").json
+        assert defaults["mode"] == "music"
+        assert defaults["background"] is False
+        updated = h.ui_call("music_visualizer_set", settings={
+            "mode": "all", "background": True, "widget": False, "style": "liquid", "intensity": .8,
+        }).json
+        assert updated["widget"] is False
+    restarted = AstraMusic()
+    assert restarted._visualizer_settings == updated
+    stored = restarted._read_settings()
+    assert stored["vk"] == {"user_id": "9", "session_valid": True}
+    assert stored["playback_volume"] == .4
+
+
+def test_music_visualizer_rejects_audio_when_paused_or_from_previous_track():
+    plugin = AstraMusic()
+    plugin._playback_state.update({"revision": 2, "status": "paused", "url": "https://example.invalid/audio"})
+    with Harness(plugin) as h:
+        assert h.ui_call("music_visualizer_sample", revision=2, bands=[.8] * 48).json["accepted"] is False
+        state = h.ui_call("music_visualizer_state").json
+        assert state["playing"] is False and state["bands"] == []
+        plugin._playback_state["status"] = "playing"
+        assert h.ui_call("music_visualizer_sample", revision=1, bands=[.8] * 48).json["accepted"] is False
+        assert h.ui_call("music_visualizer_sample", revision=2, bands=[.8] * 48).json["accepted"] is True
+        assert h.ui_call("music_visualizer_state").json["bands"] == [.8] * 48
+        plugin._playback_state["status"] = "paused"
+        assert h.ui_call("music_visualizer_state").json["bands"] == []
+        plugin._playback_state.update({"status": "playing", "revision": 3})
+        assert h.ui_call("music_visualizer_state").json["bands"] == []
+
+
+def test_visualizer_off_and_location_settings_do_not_stop_audio():
+    plugin = AstraMusic()
+    plugin._playback_state.update({"revision": 2, "status": "playing", "url": "https://example.invalid/audio"})
+    with Harness(plugin) as h:
+        h.ui_call("music_visualizer_set", settings={"mode": "off", "background": False, "widget": False})
+        state = h.ui_call("music_visualizer_state").json
+        assert state["playing"] is True
+        assert state["settings"]["mode"] == "off"
+        assert plugin._playback_state["status"] == "playing"
+
+
+def test_system_visualizer_uses_output_even_without_music(monkeypatch):
+    plugin = AstraMusic()
+    started = []
+    monkeypatch.setattr(plugin._system_audio, "start", lambda: started.append(True))
+    monkeypatch.setattr(plugin._system_audio, "snapshot", lambda: [.3] * 48)
+    with Harness(plugin) as h:
+        h.ui_call("music_visualizer_set", settings={"mode": "all", "background": True})
+        result = h.ui_call("music_visualizer_state").json
+        assert result["playing"] is False
+        assert result["bands"] == [.3] * 48 and started
+        h.ui_call("music_visualizer_set", settings={"mode": "music"})
+        assert h.ui_call("music_visualizer_state").json["bands"] == []
+
+
+def test_windows_widget_is_only_a_remote_control():
+    plugin = AstraMusic()
+    plugin._audio_host.enabled = True
+    with Harness(plugin) as h:
+        widget = next(c for c in h.ui_contributions() if c.slot == "home.widgets")
+        assert widget.url == "player-remote.html"
+    root = Path(__file__).resolve().parent.parent
+    html = (root / "ui/player-remote.html").read_text(encoding="utf-8-sig")
+    script = (root / "ui/player-remote.js").read_text(encoding="utf-8")
+    assert "<audio" not in html and "new Audio(" not in script
+    assert "music_playback_control" in script and "music_visualizer_state" in script
+
+
+@pytest.mark.parametrize("style", ["mesh", "binary", "terrain", "silk", "splash", "rain", "contour"])
+def test_new_visualizer_style_survives_settings_roundtrip(style):
+    plugin = AstraMusic()
+    with Harness(plugin) as h:
+        assert h.ui_call("music_visualizer_set", settings={"style": style}).json["style"] == style
+    assert AstraMusic()._visualizer_settings["style"] == style
+
+
+def test_edge_lookup_works_without_daemon_environment_paths(monkeypatch):
+    from src import playback_host
+    for key in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA", "SystemDrive"):
+        monkeypatch.delenv(key, raising=False)
+    expected = Path("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe")
+    monkeypatch.setattr(Path, "is_file", lambda self: self == expected)
+    monkeypatch.setattr(playback_host.shutil, "which", lambda name: None)
+    assert playback_host.find_edge_browser() == expected.resolve()

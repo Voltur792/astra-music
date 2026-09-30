@@ -1,37 +1,59 @@
-const aurora = document.querySelector(".aurora");
-const rings = [...document.querySelectorAll(".rings span")];
-let audioData = null;
-let unsubscribe = () => {};
-function requestAudio() {
-  if (typeof window.astra?.requestAudioData !== "function") return false;
-  unsubscribe = window.astra.requestAudioData((data) => { audioData = data; });
-  return true;
+const canvas = document.querySelector("#spectrum");
+const spectrum = new MusicSpectrum(canvas);
+let settings = { mode: "music", widget: true, background: false, style: "waves", intensity: .65 };
+let playing = false;
+let pending = false;
+let frameId;
+let layerValue = null;
+async function syncLayer() {
+  // Astra 0.2.6 places background.behind at -1, beneath its opaque shell.
+  // Built-in image/video/shader wallpapers occupy layer 1. At 2 this earlier
+  // sibling paints above those wallpapers but BEFORE the later content at 2,
+  // navigation at 10 and popovers. No foreground overlay or click capture.
+  const value = enabled() ? "2" : "-1";
+  if (value === layerValue || !window.astra?.setCssVariable) return;
+  await window.astra.setCssVariable("--z-behind", value);
+  layerValue = value;
 }
-
-// The bridge is injected after this script may already run, so subscribing once
-// at load time can silently leave the visualizer frozen at its resting state.
-if (!requestAudio()) {
-  let waited = 0;
-  const timer = setInterval(() => {
-    if (requestAudio() || (waited += 100) > 5000) clearInterval(timer);
-  }, 100);
+function parse(value) {
+  for (let i = 0; i < 3 && typeof value === "string"; i++) {
+    try { value = JSON.parse(value); } catch (_) { return {}; }
+  }
+  return value || {};
 }
-
-function frame() {
-  const bands = audioData?.bands || audioData?.data || [];
-  const energy = bands.reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0) / Math.max(1, bands.length);
-  const pulse = Math.min(1, energy / 100);
-  aurora.style.opacity = String(.18 + pulse * .65);
-  aurora.style.transform = `translate3d(${Math.sin(Date.now() / 900) * 2}px, ${Math.cos(Date.now() / 1100) * 2}px, 0) scale(${1 + pulse * .04})`;
-  rings.forEach((ring, index) => {
-    const value = bands[Math.min(bands.length - 1, Math.floor(index * bands.length / rings.length))] || 0;
-    const amount = Math.min(1, Number(value) / 100);
-    ring.style.opacity = String(.06 + amount * .4);
-    ring.style.transform = `scale(${.45 + amount * (.55 + index * .08)})`;
-  });
-  requestAnimationFrame(frame);
+function enabled() { return settings.background && settings.mode !== "off" && (settings.mode === "all" || playing); }
+async function sync() {
+  if (pending || !window.astra?.callBackend) return;
+  pending = true;
+  try {
+    const state = parse(await window.astra.callBackend("music_visualizer_state", {}));
+    const previousMode = settings.mode;
+    settings = { ...settings, ...state.settings };
+    playing = Boolean(state.playing);
+    spectrum.setOptions(settings);
+    canvas.hidden = !enabled();
+    await syncLayer();
+    if (previousMode !== settings.mode || !enabled()) spectrum.clear();
+    if (enabled()) {
+      if (state.bands?.length) spectrum.sample(state.bands);
+      else spectrum.clear();
+    }
+  } catch (_) {
+    playing = false;
+    spectrum.clear();
+    canvas.hidden = true;
+  } finally { pending = false; }
 }
-
-requestAudio();
-requestAnimationFrame(frame);
-window.addEventListener("beforeunload", () => unsubscribe());
+const timer = setInterval(sync, 80);
+void sync();
+let lastFrameAt = 0;
+function frame(now) {
+  if (enabled() && now - lastFrameAt >= 33) { spectrum.draw(now); lastFrameAt = now; }
+  frameId = requestAnimationFrame(frame);
+}
+frameId = requestAnimationFrame(frame);
+window.addEventListener("beforeunload", () => {
+  clearInterval(timer);
+  cancelAnimationFrame(frameId);
+  if (layerValue === "2") void window.astra?.setCssVariable?.("--z-behind", "-1");
+});
