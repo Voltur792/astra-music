@@ -89,6 +89,8 @@ def svg_data(image: Image.Image, label: str) -> str:
 def main() -> None:
     image = make_icon()
     image.save(ROOT / "icon.png", optimize=True, compress_level=9)
+    image.save(ROOT / "ui" / "desktop-widget.ico", format="ICO",
+               sizes=[(size, size) for size in (16, 20, 24, 32, 48, 64, 128, 256)])
     icon_size = (ROOT / "icon.png").stat().st_size
     if icon_size > PNG_MAX_BYTES:
         raise SystemExit(f"icon.png is {icon_size} bytes; maximum is {PNG_MAX_BYTES} bytes")

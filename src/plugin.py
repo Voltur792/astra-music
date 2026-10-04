@@ -24,6 +24,7 @@ from astra_plugin_sdk.capability_types import UiContribution
 from .tab_icon import TAB_ICON_SVG
 from .playback_host import PlaybackHost
 from .system_audio import SystemAudio
+from .desktop_widget import DesktopWidget
 
 log = logging.getLogger("astra-music")
 
@@ -491,12 +492,13 @@ class YandexMusicClient(MusicClient):
         elif event == "track_finished":
             client.rotor_station_feedback_track_finished(
                 station=station, track_id=track_id, batch_id=batch_id or None,
-                total_played_seconds=max(0.0, played_seconds),
+                # The SDK omits a literal zero, but Yandex requires this field.
+                total_played_seconds=max(0.001, played_seconds),
             )
         elif event == "skip":
             client.rotor_station_feedback_skip(
                 station=station, track_id=track_id, batch_id=batch_id or None,
-                total_played_seconds=max(0.0, played_seconds),
+                total_played_seconds=max(0.001, played_seconds),
             )
 
     def play_track(self, track: Track) -> dict[str, Any]:
@@ -796,6 +798,7 @@ class AstraMusic(Plugin):
         self.playback_selection_file = self.data_dir / "playback-selection.json"
         self._settings_lock = threading.Lock()
         self._audio_host = PlaybackHost(self)
+        self._desktop_widget = DesktopWidget(self)
         self._system_audio = SystemAudio()
         self._visualizer_settings = _visualizer_settings(self._read_settings().get("visualizer"))
         self._music_audio_bands: list[float] = []
@@ -862,6 +865,56 @@ class AstraMusic(Plugin):
 
     async def on_config_changed(self, config: dict[str, Any]):
         self._load_clients()
+        await asyncio.to_thread(self._desktop_widget.ensure)
+        from .timer_integration import IntegrationServer
+        if not hasattr(self, "_timer_bridge"):
+            self._timer_bridge = IntegrationServer("music", {
+                "search": self.ui_search, "current": self._timer_music_current,
+                "play": self._timer_music_play, "pause": self._timer_music_pause,
+                "stop": self._timer_music_stop,
+            })
+        self._timer_bridge.start(asyncio.get_running_loop())
+
+    async def _timer_music_current(self):
+        state = await self.ui_playback_state()
+        selected = self._read_playback_selection() or {}
+        track = state if state.get("track_id") else selected
+        result = {key: track.get(key, state.get(key)) for key in (
+            "service", "track_id", "title", "artist", "extra", "revision", "status", "playback_error")}
+        # Playback state contains no VK restore metadata. Only merge selection
+        # metadata when it belongs to the same track and provider.
+        if (str(selected.get("track_id")) == str(track.get("track_id"))
+                and selected.get("service") == track.get("service")):
+            result["extra"] = {**(selected.get("extra") or {}), **(track.get("extra") or {})}
+        return result
+
+    async def _timer_music_play(self, service, track_id, title="", artist="", extra=None):
+        if service == "yandex":
+            result = await self.ui_yandex_start(track_id=track_id, title=title, artist=artist, auto_play=True)
+        elif service == "vk":
+            # Also repairs previously saved alarms that lost owner_id: the
+            # regular playback path can restore metadata by searching VK.
+            result = await self._guarded(self._play_sync, {
+                "service": service, "track_id": track_id, "title": title,
+                "artist": artist, "extra": extra or {},
+            })
+        else:
+            return {"error": "Выберите Яндекс Музыку или VK"}
+        if result.get("error"):
+            return result
+        result = await self._wait_for_playback_start(result)
+        if result.get("error"):
+            return result
+        return await self._timer_music_current()
+
+    async def _timer_music_pause(self):
+        return await self.ui_playback_control(action="pause")
+
+    async def _timer_music_stop(self, revision):
+        state = await self.ui_playback_state()
+        if state.get("revision") == revision:
+            return await self.ui_playback_stop()
+        return {"ok": True, "changed": True}
 
     def subscribed_events(self) -> list[str]:
         return ["state_changed"]
@@ -1967,7 +2020,8 @@ class AstraMusic(Plugin):
         if next_index >= len(self._playback_queue) and self._playback_source == "radio":
             client = self._client("yandex")
             if isinstance(client, YandexMusicClient):
-                tracks, batch_id = client.radio_batch(self._radio_station, self._radio_batch_id)
+                previous_track = str(self._playback_queue[current_index].get("track_id", ""))
+                tracks, batch_id = client.radio_batch(self._radio_station, previous_track)
                 self._radio_batch_id = batch_id
                 self._playback_queue.extend(
                     self._playback_track_item(track, batch_id) for track in tracks
@@ -2759,9 +2813,12 @@ class AstraMusic(Plugin):
         return await self.play_playlist(service="vk", playlist_id="audio")
 
     @action("Музыка: включить мои треки ВК")
-    async def music_vk_my_music(self) -> dict[str, Any]:
+    async def music_vk_my_music(self) -> str:
         log.info("Local voice action requested VK personal library")
-        return self._start_vk_music_job()
+        result = self._start_vk_music_job()
+        if result.get("success") is False or result.get("status") == "failed":
+            raise MusicError(str(result.get("error") or result.get("message") or "Не удалось загрузить мои треки ВК."))
+        return str(result.get("message") or "Загружаю ваши треки ВК.")
 
     @tool("PLAY a named Yandex Music playlist NOW inside Astra. Call this tool when the user asks to start one of their Yandex playlists. Pass its exact name in playlist_name; no prior list call is required. Only say it started when playing=true is returned.")
     async def play_yandex_playlist(self, playlist_name: str = "", playlist_id: str = "", kwargs: str = "") -> dict[str, Any]:
@@ -2853,7 +2910,7 @@ class AstraMusic(Plugin):
             Field.number("level", "Уровень громкости", min=1, max=10, step=1, default="5"),
         ],
     )
-    async def music_shortcut(self, action: str = "", level: Any = None) -> dict[str, Any]:
+    async def music_shortcut(self, action: str = "", level: Any = None) -> str:
         """Action for Astra text triggers; no AI tool selection is involved."""
         selected_action = str(action or "").strip().lower()
         allowed = {"next", "previous", "pause", "play", "stop", "volume_up", "volume_down", "set_level"}
@@ -2875,77 +2932,88 @@ class AstraMusic(Plugin):
             result = await self._wait_for_playback_start(result)
         if not result.get("success"):
             raise MusicError(str(result.get("error") or result.get("message") or "Команда плеера не выполнена."))
-        return result
+        # Astra displays action results directly, whereas tools and UI calls
+        # need structured data. Keep voice-command answers human-readable.
+        if selected_action in {"volume", "volume_up", "volume_down"}:
+            return str(result.get("message") or "Громкость музыки изменена.")
+        if selected_action == "pause":
+            return "Музыка на паузе."
+        if selected_action == "stop":
+            return "Музыка остановлена."
+        if result.get("playing"):
+            title = str(result.get("title") or self._playback_state.get("title") or "")
+            return f"Играет «{title}»." if title else "Музыка играет."
+        return str(result.get("message") or "Команда выполнена.")
 
     # Astra currently invokes command-graph plugin actions without their saved
     # field values. Give each exact voice command a parameter-free action so
     # transport and volume controls cannot silently receive action="".
     @action("Музыка: следующий трек")
-    async def music_next(self) -> dict[str, Any]:
+    async def music_next(self) -> str:
         return await self.music_shortcut("next")
 
     @action("Музыка: предыдущий трек")
-    async def music_previous(self) -> dict[str, Any]:
+    async def music_previous(self) -> str:
         return await self.music_shortcut("previous")
 
     @action("Музыка: пауза")
-    async def music_pause(self) -> dict[str, Any]:
+    async def music_pause(self) -> str:
         return await self.music_shortcut("pause")
 
     @action("Музыка: продолжить")
-    async def music_play(self) -> dict[str, Any]:
+    async def music_play(self) -> str:
         return await self.music_shortcut("play")
 
     @action("Музыка: остановить")
-    async def music_stop(self) -> dict[str, Any]:
+    async def music_stop(self) -> str:
         return await self.music_shortcut("stop")
 
     @action("Музыка: громче")
-    async def music_volume_up(self) -> dict[str, Any]:
+    async def music_volume_up(self) -> str:
         return await self.music_shortcut("volume_up")
 
     @action("Музыка: тише")
-    async def music_volume_down(self) -> dict[str, Any]:
+    async def music_volume_down(self) -> str:
         return await self.music_shortcut("volume_down")
 
     @action("Музыка: громкость 1")
-    async def music_volume_1(self) -> dict[str, Any]:
+    async def music_volume_1(self) -> str:
         return await self.music_shortcut("set_level", 1)
 
     @action("Музыка: громкость 2")
-    async def music_volume_2(self) -> dict[str, Any]:
+    async def music_volume_2(self) -> str:
         return await self.music_shortcut("set_level", 2)
 
     @action("Музыка: громкость 3")
-    async def music_volume_3(self) -> dict[str, Any]:
+    async def music_volume_3(self) -> str:
         return await self.music_shortcut("set_level", 3)
 
     @action("Музыка: громкость 4")
-    async def music_volume_4(self) -> dict[str, Any]:
+    async def music_volume_4(self) -> str:
         return await self.music_shortcut("set_level", 4)
 
     @action("Музыка: громкость 5")
-    async def music_volume_5(self) -> dict[str, Any]:
+    async def music_volume_5(self) -> str:
         return await self.music_shortcut("set_level", 5)
 
     @action("Музыка: громкость 6")
-    async def music_volume_6(self) -> dict[str, Any]:
+    async def music_volume_6(self) -> str:
         return await self.music_shortcut("set_level", 6)
 
     @action("Музыка: громкость 7")
-    async def music_volume_7(self) -> dict[str, Any]:
+    async def music_volume_7(self) -> str:
         return await self.music_shortcut("set_level", 7)
 
     @action("Музыка: громкость 8")
-    async def music_volume_8(self) -> dict[str, Any]:
+    async def music_volume_8(self) -> str:
         return await self.music_shortcut("set_level", 8)
 
     @action("Музыка: громкость 9")
-    async def music_volume_9(self) -> dict[str, Any]:
+    async def music_volume_9(self) -> str:
         return await self.music_shortcut("set_level", 9)
 
     @action("Музыка: громкость 10")
-    async def music_volume_10(self) -> dict[str, Any]:
+    async def music_volume_10(self) -> str:
         return await self.music_shortcut("set_level", 10)
 
     @tool("Open a track in the service's web player (a real browser window). Needs service ('yandex', 'vk') and track_id from search_tracks or list_playlist_tracks.")
@@ -3032,6 +3100,21 @@ class AstraMusic(Plugin):
     #
     # Handlers run on the daemon's event loop, so each one goes through
     # `_guarded`: a slow network call must not freeze Astra's window.
+
+    @ui_call("music_desktop_get")
+    async def ui_desktop_get(self, **params: Any) -> dict[str, Any]:
+        return self._desktop_widget.snapshot()
+
+    @ui_call("music_desktop_set")
+    async def ui_desktop_set(self, **params: Any) -> dict[str, Any]:
+        settings = params.get("settings")
+        if not isinstance(settings, dict):
+            return {"error": "Не переданы настройки виджета."}
+        return await asyncio.to_thread(self._desktop_widget.set, settings, bool(params.get("reset_position")))
+
+    @ui_call("music_desktop_report")
+    async def ui_desktop_report(self, **params: Any) -> dict[str, Any]:
+        return self._desktop_widget.report(params.get("session", ""), params.get("x"), params.get("y"), params.get("closed") is True)
 
     @ui_call("music_visualizer_get")
     async def ui_visualizer_get(self, **params: Any) -> dict[str, Any]:
@@ -3375,6 +3458,9 @@ class AstraMusic(Plugin):
         )
 
     async def on_shutdown(self) -> None:
+        if hasattr(self, "_timer_bridge"):
+            await asyncio.to_thread(self._timer_bridge.close)
+        self._desktop_widget.close()
         self._audio_host.close()
         self._system_audio.close()
         for client in self.clients.values():

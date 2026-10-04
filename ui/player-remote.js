@@ -8,10 +8,16 @@ player.prepend(canvas);
 const spectrum = new MusicSpectrum(canvas);
 let state = {}, pending = false, draggingVolume = false, draggingSeek = false;
 let visualize = false, lastFrame = 0, frameId;
+let commandError = "", commandErrorUntil = 0;
 const parse = value => typeof value === "string" ? JSON.parse(value) : value || {};
 const call = async (method, params = {}) => parse(await window.astra.callBackend(method, params));
 const time = value => { const n = Math.max(0, Math.floor(Number(value) || 0)); return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`; };
-function notice(text, bad = false) { $("notice").textContent = text; $("notice").classList.toggle("bad", bad); }
+function notice(text, bad = false) {
+  // Polling must not erase a failed button command on its next frame.
+  if (commandError && Date.now() < commandErrorUntil) { text = commandError; bad = true; }
+  $("notice").textContent = text; $("notice").title = text; $("notice").classList.toggle("bad", bad);
+}
+function failedCommand(text) { commandError = text; commandErrorUntil = Date.now() + 10000; notice(text, true); }
 function render() {
   const selected = Boolean(state.track_id), playing = state.status === "playing";
   player.classList.toggle("is-playing", playing);
@@ -39,11 +45,12 @@ function render() {
   $("elapsed").textContent = time(state.position_seconds); $("duration").textContent = time(state.duration_seconds);
   if (state.status === "failed") {
     const message = state.playback_error === "EdgeNotFound" ? "Не найден Microsoft Edge для аудиоплеера."
-      : state.playback_error === "AudioHostUnavailable" ? "Не удалось запустить аудиопроцесс. Нажмите ▶ для повтора."
+      : ["AudioHostUnavailable", "AudioHostUnresponsive"].includes(state.playback_error) ? "Аудиоплеер не отвечает. Нажмите ▶ для перезапуска."
       : "Не удалось загрузить поток. Нажмите ▶ для повтора.";
     notice(message, true);
   }
   else if (state.status === "blocked") notice("Не удалось запустить постоянный плеер", true);
+  else if (["play_requested", "attempting"].includes(state.status)) notice("Запускаю воспроизведение…");
   else notice("");
 }
 async function sync() {
@@ -61,11 +68,15 @@ async function sync() {
   finally { pending = false; }
 }
 async function control(action, value = 0) {
-  try { const result = await call("music_playback_control", {action, value}); if (result.error) notice(result.error, true); else await sync(); }
-  catch (_) { notice("Не удалось выполнить команду", true); }
+  try {
+    const result = await call("music_playback_control", {action, value});
+    if (result.error || result.success === false) failedCommand(result.error || result.message || "Не удалось выполнить команду");
+    else { commandError = ""; await sync(); }
+  }
+  catch (_) { failedCommand("Не удалось выполнить команду"); }
 }
 $("play").addEventListener("click", () => control(state.status === "playing" ? "pause" : "play"));
-$("stop").addEventListener("click", async () => { await call("music_playback_stop"); await sync(); });
+$("stop").addEventListener("click", () => control("stop"));
 for (const id of ["previous", "next", "like"]) $(id).addEventListener("click", () => control(id));
 $("volume").addEventListener("pointerdown", () => { draggingVolume = true; });
 $("volume").addEventListener("input", () => { $("volumeValue").value = $("volume").value; });

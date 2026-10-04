@@ -616,6 +616,7 @@ setInterval(() => {
 }, 250);
 const visualSettingsTimer = setInterval(syncVisualSettings, 750);
 const audioMeterTimer = setInterval(sampleLocalAudio, 40);
+window.MUSIC_PLAYER_READY = true;
 void syncVisualSettings();
 setInterval(sync, 600);
 sync();

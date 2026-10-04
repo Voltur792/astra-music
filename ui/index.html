@@ -92,6 +92,22 @@
         </div>
       </fieldset>
     </section>
+    <section class="card" aria-labelledby="desktopWidgetHeading">
+      <h2 id="desktopWidgetHeading">Виджет на рабочем столе</h2>
+      <p class="hint">Отдельный музыкальный плеер Windows. Перетаскивайте за название трека — положение запоминается. Отключение виджета не останавливает музыку.</p>
+      <div class="visualizer-placements">
+        <label class="visualizer-switch"><input type="checkbox" id="desktopWidgetEnabled" disabled><span class="visualizer-switch-track" aria-hidden="true"></span><span>Показывать на рабочем столе</span></label>
+        <label class="visualizer-switch"><input type="checkbox" id="desktopWidgetOnTop" disabled><span class="visualizer-switch-track" aria-hidden="true"></span><span>Поверх других окон</span></label>
+      </div>
+      <div class="visualizer-intensity">
+        <label for="desktopWidgetTransparency">Прозрачность виджета</label>
+        <input id="desktopWidgetTransparency" type="range" min="0" max="80" step="5" value="0" disabled>
+        <output id="desktopWidgetTransparencyValue" for="desktopWidgetTransparency">0%</output>
+      </div>
+      <p class="hint">0% — непрозрачный; 80% — почти прозрачный. Применяется ко всему виджету.</p>
+      <button type="button" id="desktopWidgetReset" disabled>Вернуть виджет на экран</button>
+      <p id="desktopWidgetStatus" class="hint" role="status">Загрузка настроек…</p>
+    </section>
     <details class="card external-player-settings">
       <summary>Внешний плеер — дополнительные настройки</summary><div class="external-player-body">
       <p class="hint">
@@ -118,5 +134,6 @@
 <script src="script.js"></script>
 <script src="audio-spectrum.js"></script>
 <script src="visualizer-settings.js"></script>
+<script src="desktop-settings.js"></script>
 </body>
 </html>

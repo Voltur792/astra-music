@@ -614,7 +614,7 @@ def test_vk_library_voice_action_routes_to_same_background_launch(monkeypatch):
     with Harness(plugin) as h:
         result = h.execute_action("music_vk_my_music")
         assert result.success, result.error
-        assert result.json == {"job_id": "voice-job", "status": "loading"}
+        assert result.result == "Загружаю ваши треки ВК."
 
 
 def test_visualizer_defaults_and_preferences_survive_restart_without_changing_accounts():

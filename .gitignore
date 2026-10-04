@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+.astra-venv.json
 ui/easyvk/node_modules/
 # Service tokens live here — never commit.
 data/
