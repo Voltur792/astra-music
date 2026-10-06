@@ -98,7 +98,7 @@ class DiscordSource:
             raise ValueError("Empty queue")
         return rows[:500], radio, batch
 
-    def _resolve(self, item):
+    def _resolve(self, item, feedback=True):
         service, track_id = item.get("service"), str(item.get("track_id", ""))
         if service == "yandex":
             url = self.plugin._yandex_stream_sync(track_id).get("url", "")
@@ -114,7 +114,7 @@ class DiscordSource:
             raise ValueError("Unknown service")
         if not self.valid_url(url):
             raise ValueError("Invalid media URL")
-        if self.radio and service == "yandex":
+        if feedback and self.radio and service == "yandex":
             try:
                 self.plugin._client("yandex").radio_feedback("user:onyourwave", "track_started",
                     track_id=track_id, batch_id=self.batch_id)
@@ -122,12 +122,12 @@ class DiscordSource:
                 pass
         return url
 
-    async def _activate(self, session):
+    async def _activate(self, session, feedback=True):
         with self.lock:
             if self.session != session:
                 return {"cancelled": True}
             item = dict(self.queue[self.index])
-        url = await asyncio.to_thread(self._resolve, item)
+        url = await asyncio.to_thread(self._resolve, item, feedback)
         with self.lock:
             if self.session != session:
                 return {"cancelled": True}
@@ -141,12 +141,25 @@ class DiscordSource:
             if session != self.session or not self.assets:
                 return {"status": "stopped"}
             self.last_used = time.monotonic()
-            result = {**self.track, "bridge_version": 3, "revision": self.revision, "queue_count": len(self.queue),
+            result = {**self.track, "bridge_version": 4, "revision": self.revision, "queue_count": len(self.queue),
                       "queue_index": self.index, "status": "ready"}
             revision = self.revision
         base = await asyncio.to_thread(self.plugin._audio_host.ensure_server)
         result["stream_url"] = f"{base}/discord-stream/{revision}/0"
         return result
+
+    async def refresh(self, session, revision):
+        """Renew this queue entry's URL without advancing or duplicating radio feedback."""
+        async with self.operations:
+            with self.lock:
+                if session != self.session or revision != self.revision or not self.assets:
+                    return {"cancelled": True}
+                self.last_used = time.monotonic()
+            try:
+                return await self._activate(session, feedback=False)
+            except Exception:
+                # Keep the current entry and queue available for another attempt.
+                return {"error": "Не удалось обновить поток текущей песни."}
 
     async def advance(self, session, revision, direction=1, finished=False, played_seconds=0):
         async with self.operations:
@@ -271,7 +284,10 @@ class DiscordSource:
         except (BrokenPipeError, ConnectionResetError):
             handler.close_connection = True
         except Exception as error:
-            log.warning("Discord media interrupted revision=%s reason=%s", revision, type(error).__name__)
+            reasons = {"Media retry limit reached", "Server cannot resume media", "Media resume range changed",
+                       "Media representation changed", "Expired stream", "Upstream unavailable", "Encoded media response"}
+            detail = str(error) if isinstance(error, ValueError) and str(error) in reasons else "unclassified"
+            log.warning("Discord media interrupted revision=%s reason=%s detail=%s", revision, type(error).__name__, detail)
             if not sent and not getattr(handler, "_discord_headers_sent", False):
                 handler.send_error(502)
             handler.close_connection = True
@@ -316,7 +332,7 @@ class DiscordSource:
         handler._discord_headers_sent = True
         log.info("Discord media range revision=%s status=%s start=%s first_end=%s requested_end=%s total=%s",
                  revision, response.status_code, start, segment_end, end, total)
-        offset, retries, ranges = start, 0, 0
+        offset, retries, ranges, retry_count = start, 0, 0, 0
 
         def forward(current, limit):
             nonlocal offset
@@ -336,6 +352,7 @@ class DiscordSource:
             if end is None:
                 raise
             retries += 1
+            retry_count += 1
         finally:
             response.close()
         if end is None:
@@ -382,6 +399,11 @@ class DiscordSource:
             except httpx.RequestError:
                 attempt_failed = True
             if attempt_failed or offset == before:
-                retries += 1
+                # Count consecutive failures: a long song can survive more than
+                # three separate recoverable interruptions while making progress.
+                retries = 1 if offset > before else retries + 1
+                retry_count += 1
+            else:
+                retries = 0
         log.info("Discord media delivered revision=%s bytes=%s continuation_ranges=%s retries=%s",
-                 revision, offset - start, ranges, retries)
+                 revision, offset - start, ranges, retry_count)
