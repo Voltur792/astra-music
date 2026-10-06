@@ -3,12 +3,15 @@
 Never starts the desktop player, changes its selection, or exposes account keys.
 """
 import asyncio
+import logging
 import re
 import threading
 import time
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+
+log = logging.getLogger(__name__)
 
 
 class DiscordSource:
@@ -138,7 +141,7 @@ class DiscordSource:
             if session != self.session or not self.assets:
                 return {"status": "stopped"}
             self.last_used = time.monotonic()
-            result = {**self.track, "bridge_version": 2, "revision": self.revision, "queue_count": len(self.queue),
+            result = {**self.track, "bridge_version": 3, "revision": self.revision, "queue_count": len(self.queue),
                       "queue_index": self.index, "status": "ready"}
             revision = self.revision
         base = await asyncio.to_thread(self.plugin._audio_host.ensure_server)
@@ -217,6 +220,7 @@ class DiscordSource:
     def serve(self, handler, revision, asset):
         """Rewrite all HLS URLs to this authenticated server, including AES keys."""
         sent = False
+        handler._discord_headers_sent = False
         try:
             url = self._asset(revision, asset)
             with httpx.Client(follow_redirects=False, timeout=25) as client:
@@ -261,23 +265,123 @@ class DiscordSource:
                             sent = True
                             handler.wfile.write(payload)
                         else:
-                            handler.send_response(response.status_code)
-                            for name in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
-                                if name in response.headers:
-                                    handler.send_header(name, response.headers[name])
-                            handler.send_header("Connection", "close")
-                            handler.close_connection = True
-                            handler.send_header("Cache-Control", "no-store")
-                            handler.end_headers()
-                            sent = True
-                            for chunk in response.iter_raw():
-                                self._asset(revision, asset)
-                                handler.wfile.write(chunk)
+                            self._serve_file(handler, client, url, response, revision, asset, requested)
                         return
                 raise ValueError("Too many redirects")
         except (BrokenPipeError, ConnectionResetError):
             handler.close_connection = True
-        except Exception:
-            if not sent:
+        except Exception as error:
+            log.warning("Discord media interrupted revision=%s reason=%s", revision, type(error).__name__)
+            if not sent and not getattr(handler, "_discord_headers_sent", False):
                 handler.send_error(502)
             handler.close_connection = True
+
+    def _serve_file(self, handler, client, url, response, revision, asset, requested):
+        """Join bounded CDN ranges into the requested range without buffering a song."""
+        if response.headers.get("content-encoding", "identity").lower() != "identity":
+            raise ValueError("Encoded media response")
+        content_range = re.fullmatch(r"bytes (\d{1,18})-(\d{1,18})/(\d{1,18})",
+                                     response.headers.get("content-range", ""))
+        request_range = re.fullmatch(r"bytes=(\d+)-(\d*)", requested)
+        if response.status_code == 206:
+            if not content_range:
+                raise ValueError("Invalid media range")
+            start, segment_end, total = map(int, content_range.groups())
+            if not 0 <= start <= segment_end < total:
+                raise ValueError("Invalid media range")
+            wanted_start = int(request_range[1]) if request_range else 0
+            if start != wanted_start:
+                raise ValueError("Media range begins at wrong offset")
+            end = min(int(request_range[2]), total - 1) if request_range and request_range[2] else total - 1
+            if end < start:
+                raise ValueError("Invalid requested media range")
+        else:
+            start = 0
+            length = response.headers.get("content-length", "")
+            total = int(length) if re.fullmatch(r"\d{1,18}", length) and int(length) > 0 else None
+            end = total - 1 if total is not None else None
+            segment_end = end
+        etag, modified = response.headers.get("etag"), response.headers.get("last-modified")
+        handler.send_response(response.status_code)
+        handler.send_header("Content-Type", response.headers.get("content-type", "application/octet-stream"))
+        if total is not None:
+            handler.send_header("Content-Length", str(end - start + 1))
+            handler.send_header("Accept-Ranges", "bytes")
+        if response.status_code == 206:
+            handler.send_header("Content-Range", f"bytes {start}-{end}/{total}")
+        handler.send_header("Connection", "close")
+        handler.send_header("Cache-Control", "no-store")
+        handler.close_connection = True
+        handler.end_headers()
+        handler._discord_headers_sent = True
+        log.info("Discord media range revision=%s status=%s start=%s first_end=%s requested_end=%s total=%s",
+                 revision, response.status_code, start, segment_end, end, total)
+        offset, retries, ranges = start, 0, 0
+
+        def forward(current, limit):
+            nonlocal offset
+            for chunk in current.iter_raw(chunk_size=32768):
+                self._asset(revision, asset)
+                if limit is not None:
+                    chunk = chunk[:max(0, limit + 1 - offset)]
+                if chunk:
+                    handler.wfile.write(chunk)
+                    offset += len(chunk)
+                if limit is not None and offset > limit:
+                    break
+
+        try:
+            forward(response, min(end, segment_end) if end is not None else None)
+        except httpx.RequestError:
+            if end is None:
+                raise
+            retries += 1
+        finally:
+            response.close()
+        if end is None:
+            return
+        while offset <= end:
+            self._asset(revision, asset)
+            if retries > 3 or ranges >= 512:
+                raise ValueError("Media retry limit reached")
+            ranges += 1
+            before = offset
+            attempt_failed = False
+            headers = {"Accept-Encoding": "identity", "Range": f"bytes={offset}-{end}"}
+            if etag and not etag.startswith("W/"):
+                headers["If-Range"] = etag
+            elif modified:
+                headers["If-Range"] = modified
+            try:
+                for redirect in range(5):
+                    if not self.valid_url(url):
+                        raise ValueError("Invalid media redirect")
+                    with client.stream("GET", url, headers=headers) as remaining:
+                        if remaining.status_code in (301, 302, 303, 307, 308):
+                            url = urljoin(url, remaining.headers.get("location", ""))
+                            continue
+                        if remaining.status_code in (408, 429, 500, 502, 503, 504):
+                            attempt_failed = True
+                            break
+                        actual = re.fullmatch(r"bytes (\d{1,18})-(\d{1,18})/(\d{1,18})",
+                                              remaining.headers.get("content-range", ""))
+                        if remaining.status_code != 206 or not actual:
+                            raise ValueError("Server cannot resume media")
+                        part_start, part_end, part_total = map(int, actual.groups())
+                        if part_start != offset or part_total != total or not part_start <= part_end < total:
+                            raise ValueError("Media resume range changed")
+                        if remaining.headers.get("content-encoding", "identity").lower() != "identity":
+                            raise ValueError("Encoded media response")
+                        if (etag and remaining.headers.get("etag", etag) != etag
+                                or modified and remaining.headers.get("last-modified", modified) != modified):
+                            raise ValueError("Media representation changed")
+                        forward(remaining, min(end, part_end))
+                        break
+                else:
+                    raise ValueError("Too many media redirects")
+            except httpx.RequestError:
+                attempt_failed = True
+            if attempt_failed or offset == before:
+                retries += 1
+        log.info("Discord media delivered revision=%s bytes=%s continuation_ranges=%s retries=%s",
+                 revision, offset - start, ranges, retries)
