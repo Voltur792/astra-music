@@ -798,6 +798,8 @@ class AstraMusic(Plugin):
         self.playback_selection_file = self.data_dir / "playback-selection.json"
         self._settings_lock = threading.Lock()
         self._audio_host = PlaybackHost(self)
+        from .discord_music import DiscordSource
+        self._discord_music = DiscordSource(self)
         self._desktop_widget = DesktopWidget(self)
         self._system_audio = SystemAudio()
         self._visualizer_settings = _visualizer_settings(self._read_settings().get("visualizer"))
@@ -872,8 +874,16 @@ class AstraMusic(Plugin):
                 "search": self.ui_search, "current": self._timer_music_current,
                 "play": self._timer_music_play, "pause": self._timer_music_pause,
                 "stop": self._timer_music_stop,
+                "discord_play": self._discord_music.play,
+                "discord_state": self._discord_music.current,
+                "discord_next": self._discord_music.advance,
+                "discord_stop": self._discord_music_stop,
+                "discord_playlists": self.ui_list_playlists,
             })
         self._timer_bridge.start(asyncio.get_running_loop())
+
+    async def _discord_music_stop(self, session):
+        return self._discord_music.stop(session)
 
     async def _timer_music_current(self):
         state = await self.ui_playback_state()
@@ -3458,6 +3468,7 @@ class AstraMusic(Plugin):
         )
 
     async def on_shutdown(self) -> None:
+        self._discord_music.stop(self._discord_music.session)
         if hasattr(self, "_timer_bridge"):
             await asyncio.to_thread(self._timer_bridge.close)
         self._desktop_widget.close()

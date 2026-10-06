@@ -77,9 +77,16 @@ class PlaybackHost:
                     if len(parts) < 3 or not secrets.compare_digest(parts[1], host.token):
                         self.send_error(403); return
                     name = "/".join(parts[2:])
+                    if name.startswith("discord-stream/"):
+                        match = re.fullmatch(r"discord-stream/(\d+)/(\d+)(?:\.(?:m3u8|ts|aac|mp4|m4s|key|bin))?", name)
+                        if not match:
+                            self.send_error(404); return
+                        host.plugin._discord_music.serve(self, int(match[1]), match[2])
+                        return
                     if name.startswith("stream/"):
                         state = asyncio.run(host.plugin.ui_playback_state())
-                        if name != f"stream/{state.get('revision')}" or state.get("service") != "yandex":
+                        expected = f"stream/{state.get('revision')}"
+                        if name != expected or state.get("service") != "yandex" or not state.get("url"):
                             self.send_error(404); return
                         headers = {"Accept-Encoding": "identity"}
                         requested_range = self.headers.get("Range", "")
