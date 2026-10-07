@@ -877,6 +877,7 @@ class AstraMusic(Plugin):
                 "discord_play": self._discord_music.play,
                 "discord_state": self._discord_music.current,
                 "discord_refresh": self._discord_music.refresh,
+                "discord_like": self._discord_music.like,
                 "discord_next": self._discord_music.advance,
                 "discord_stop": self._discord_music_stop,
                 "discord_playlists": self.ui_list_playlists,

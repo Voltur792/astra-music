@@ -141,7 +141,7 @@ class DiscordSource:
             if session != self.session or not self.assets:
                 return {"status": "stopped"}
             self.last_used = time.monotonic()
-            result = {**self.track, "bridge_version": 4, "revision": self.revision, "queue_count": len(self.queue),
+            result = {**self.track, "bridge_version": 5, "revision": self.revision, "queue_count": len(self.queue),
                       "queue_index": self.index, "status": "ready"}
             revision = self.revision
         base = await asyncio.to_thread(self.plugin._audio_host.ensure_server)
@@ -196,6 +196,23 @@ class DiscordSource:
             except Exception:
                 self.stop(session)
                 return {"error": "Не удалось получить следующий трек."}
+
+    async def like(self, session, revision):
+        async with self.operations:
+            with self.lock:
+                if session != self.session or revision != self.revision or not self.assets:
+                    return {"cancelled": True}
+                if self.track.get("service") != "yandex":
+                    return {"unsupported": True}
+                track_id = str(self.track.get("track_id", ""))
+            try:
+                def save_like():
+                    self.plugin._client("yandex").set_track_liked(track_id, True)
+                    self.plugin._remember_yandex_like(track_id)
+                await asyncio.to_thread(save_like)
+                return {"liked": True}
+            except Exception:
+                return {"error": "Не удалось поставить лайк. Проверьте вход в Яндекс Музыку."}
 
     def stop(self, session):
         with self.lock:

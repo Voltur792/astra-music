@@ -1,7 +1,7 @@
 [plugin]
 id = "music-controller"
 name = "Music Controller"
-version = "1.1.7"
+version = "1.1.8"
 description = "Search Yandex Music and VK; play tracks and playlists inside Astra with voice controls."
 call_timeout_secs = 600
 author = "Voltur"
