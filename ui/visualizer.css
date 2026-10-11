@@ -2,3 +2,4 @@
 body { color-scheme: light dark; }
 html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; pointer-events: none; }
 #spectrum { display: block; width: 100%; height: 100%; filter: brightness(1.15); }
+#spectrum[hidden] { display: none; }

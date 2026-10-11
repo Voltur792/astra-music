@@ -3199,6 +3199,8 @@ class AstraMusic(Plugin):
             if contribution.id == "music":
                 contribution.transparent = True
             elif contribution.id == "music-visualizer":
+                # Keep the effect in the wallpaper slot; the iframe raises it
+                # above Astra's wallpaper while page content stays on top.
                 contribution.slot = "background.behind"
                 contribution.transparent = True
                 contribution.pointer_events = False
