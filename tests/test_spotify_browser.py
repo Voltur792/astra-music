@@ -86,6 +86,41 @@ def plugin(tmp_path, monkeypatch):
     return value
 
 
+def test_spotify_bands_are_scoped_to_current_music_session(plugin):
+    player=plugin._spotify
+    process=object()
+    player.process=process
+    player.active=True
+    plugin._visualizer_settings.update(mode="music", widget=True)
+    plugin._playback_state.update(service="spotify", status="playing", revision=5)
+    player._publish_bands(process, [.3]*48)
+    assert plugin._music_audio_bands == [.3]*48
+    assert plugin._music_audio_sample_revision == 5
+    for other_process, bands in ((object(), [.9]*48), (process, [float("nan")]*48), (process,[.9]*47)):
+        player._publish_bands(other_process,bands)
+        assert plugin._music_audio_bands == [.3]*48
+    for mode,status,service in (("all","playing","spotify"),("music","paused","spotify"),("music","playing","yandex")):
+        plugin._visualizer_settings["mode"]=mode
+        plugin._playback_state.update(status=status,service=service)
+        player._publish_bands(process,[.9]*48)
+        assert plugin._music_audio_bands == [.3]*48
+
+
+def test_spotify_meter_notifications_do_not_wait_and_restart_with_helper(plugin):
+    import io
+    from types import SimpleNamespace
+    player=plugin._spotify
+    player.process=SimpleNamespace(stdin=io.StringIO(),poll=lambda:None)
+    player.set_visualizer(True);player.set_visualizer(True);player.set_visualizer(False)
+    import json
+    rows=[json.loads(line) for line in player.process.stdin.getvalue().splitlines()]
+    assert [r["enabled"] for r in rows] == [True,False]
+    assert not player.pending
+    player.process=SimpleNamespace(stdin=io.StringIO(),poll=lambda:None)
+    player.set_visualizer(False)
+    assert player.process.stdin.getvalue()
+
+
 @pytest.mark.parametrize("url", ["http://open.spotify.com/", "https://evil.test/track/abc", "https://open.spotify.com@evil.test/", "https://open.spotify.com:444/", "https://open.spotify.com/../../login", "https://open.spotify.com.evil.test/", "https://open.spotify.com/track/a/b"])
 def test_navigation_is_limited_to_spotify_player(url):
     with pytest.raises(SpotifyError):

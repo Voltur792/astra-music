@@ -98,7 +98,9 @@ class SystemAudio:
                 mono = np.mean(data, axis=1)
                 spectrum = np.abs(np.fft.rfft(mono * np.hanning(len(mono)))) / len(mono)
                 edges = np.geomspace(1, len(spectrum) - 1, 49).astype(int)
-                self.bands = [float(np.clip(np.max(spectrum[lo:max(lo+1, hi)]) * 12, 0, 1)) for lo, hi in zip(edges[:-1], edges[1:])]
+                # Loopback is measured after the desktop output mixer, unlike
+                # the player's own meter. Compensate its quieter visual response.
+                self.bands = [float(np.clip(np.max(spectrum[lo:max(lo+1, hi)]) * 24, 0, 1)) for lo, hi in zip(edges[:-1], edges[1:])]
                 self.sample_at = time.monotonic()
                 self.error = ""
                 if time.monotonic() >= check_at:

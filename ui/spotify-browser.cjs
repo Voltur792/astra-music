@@ -7,6 +7,8 @@ const readline = require('node:readline');
 const spotifyPage = require('./spotify-page.js');
 const spotifyCatalog = require('./spotify-catalog.js');
 const spotifyAudio = require('./spotify-audio.js');
+const spotifyMeter = require('./spotify-meter.js');
+const {musicFrequencyBands} = require('./audio-bands.js');
 const {randomBytes} = require('node:crypto');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const output = value => process.stdout.write(JSON.stringify(value) + '\n');
@@ -110,6 +112,8 @@ async function main() {
   let audioLease = '', audioScript = '', lastAudio = 0;
   const audioBinding = 'astraAudio' + randomBytes(16).toString('hex');
   const audioKey = 'astraCapture' + randomBytes(16).toString('hex');
+  const meterKey = 'astraMeter' + randomBytes(16).toString('hex');
+  let meterEnabled=false, meterPending=false, meterSuspended=false, lastMeterAttempt=0, meterTask=Promise.resolve();
   const stop = async () => {
     if (ended) return; ended = true; clearInterval(polling);
     try {await browserConnection?.call('Browser.close');} catch (_) {browser.kill();}
@@ -138,9 +142,14 @@ async function main() {
       if (!target) throw new Error('Не удалось восстановить страницу Spotify.');
       page=await CDP.connect(target.webSocketDebuggerUrl);
       page.onEvent = message => {
-        if(message.method !== 'Runtime.bindingCalled' || message.params?.name !== audioBinding || !audioLease) return;
+        if(message.method !== 'Runtime.bindingCalled' || message.params?.name !== audioBinding) return;
         try {
           const event=JSON.parse(message.params.payload);
+          if(event.meter === meterKey && meterEnabled) {
+            if(Array.isArray(event.bands) && event.bands.length===48 && event.bands.every(n=>Number.isFinite(n) && n>=0 && n<=1)) output({type:'visualizer',bands:event.bands});
+            return;
+          }
+          if(!audioLease) return;
           if(event.lease !== audioLease) return;
           if(event.error) {output({type:'audio-failure',lease:audioLease}); return;}
           if(typeof event.pcm === 'string' && event.pcm.length === 10924 && /^[A-Za-z0-9+/=]+$/.test(event.pcm)) {
@@ -148,18 +157,37 @@ async function main() {
           }
         } catch(_) {}
       };
+      await page.call('Runtime.enable');
+      await page.call('Runtime.addBinding',{name:audioBinding});
+    };
+    const meterExpression = enabled => `(${spotifyMeter.toString()})(${JSON.stringify({key:meterKey,audioKey,binding:audioBinding,enabled})},${musicFrequencyBands.toString()})`;
+    const stopMeter = async () => {
+      await meterTask.catch(()=>{});
+      await page.call('Runtime.evaluate',{expression:meterExpression(false),awaitPromise:true});
+    };
+    const syncMeter = async () => {
+      if(meterPending || meterSuspended || !meterEnabled || Date.now()-lastMeterAttempt<2000) return;
+      meterPending=true; lastMeterAttempt=Date.now();
+      try {meterTask=page.call('Runtime.evaluate',{expression:meterExpression(true),awaitPromise:true,userGesture:true}); await meterTask;}
+      catch(_) {} finally {meterPending=false;}
     };
     const captureExpression = lease => `(${spotifyAudio.toString()})(${JSON.stringify({key:audioKey,binding:audioBinding,lease})})`;
     const stopCapture = async lease => {
       if(!audioLease || lease && lease !== audioLease) return;
-      audioLease=''; lastAudio=0;
-      if(audioScript) {await page.call('Page.removeScriptToEvaluateOnNewDocument',{identifier:audioScript});audioScript='';}
-      await page.call('Runtime.evaluate',{expression:`(${spotifyAudio.toString()})(${JSON.stringify({key:audioKey,action:'stop'})})`,awaitPromise:true});
+      const previousSuspended=meterSuspended; meterSuspended=true;
+      try {
+        await stopMeter();
+        audioLease=''; lastAudio=0;
+        if(audioScript) {await page.call('Page.removeScriptToEvaluateOnNewDocument',{identifier:audioScript});audioScript='';}
+        await page.call('Runtime.evaluate',{expression:`(${spotifyAudio.toString()})(${JSON.stringify({key:audioKey,action:'stop'})})`,awaitPromise:true});
+      } finally {meterSuspended=previousSuspended; lastMeterAttempt=0;}
     };
     const startCapture = async lease => {
       if(mode !== 'hidden' || !/^[a-f0-9]{32}$/.test(lease)) throw new Error('Трансляция Spotify доступна только без окна браузера.');
-      await stopCapture(); audioLease=lease;
+      meterSuspended=true;
       try {
+        await stopCapture(); audioLease=lease;
+        await stopMeter();
         await page.call('Runtime.enable');
         await page.call('Runtime.addBinding',{name:audioBinding});
         // A new Spotify document reattaches capture before its player starts audio.
@@ -168,6 +196,7 @@ async function main() {
         const result=await page.call('Runtime.evaluate',{expression:captureExpression(lease),awaitPromise:true,returnByValue:true,userGesture:true});
         if(result.exceptionDetails || !result.result?.value?.local_suppressed || result.result.value.sample_rate !== 48000) throw new Error();
       } catch(_) {await stopCapture().catch(()=>{});throw new Error('Не удалось передать звук Spotify в Discord с отключением локального звучания.');}
+      finally {meterSuspended=false; lastMeterAttempt=0;}
     };
     let lastTitle = '', lastPosition = 0, confirmedPlaying = false;
     const evaluate = async request => {
@@ -218,6 +247,7 @@ async function main() {
       try {
         if(audioLease && lastAudio && Date.now()-lastAudio > 15000) {const lease=audioLease;await stopCapture();output({type:'audio-failure',lease});}
         output({type:'state',state:await evaluate()});
+        void syncMeter();
       } catch(error) {output({type:'state',state:{message:error.message,status:'ready'}});} finally {busy=false;}
     };
     output({type:'ready',browser_pid:browser.pid}); await sample(); polling=setInterval(sample,500);
@@ -229,7 +259,11 @@ async function main() {
         request=JSON.parse(line);
         if(request.action==='close') {await stop(); return;}
         await attach();
-        if(request.action==='queue-next') {
+        if(request.action==='visualizer') {
+          meterEnabled=Boolean(request.enabled); lastMeterAttempt=0;
+          if(meterEnabled) await syncMeter(); else await stopMeter();
+          output({type:'reply',id:request.id,success:true}); return;
+        } else if(request.action==='queue-next') {
           const point=await evaluate({action:'queue-open'});
           if(point.error) throw new Error(point.error);
           if(!point.done) {await click(page,point); await delay(250);}

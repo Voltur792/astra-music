@@ -223,6 +223,7 @@ class YandexMusicClient(MusicClient):
     def __init__(self, token: str):
         super().__init__(token)
         self._stream_client = None
+        self._radio_request_lock = threading.Lock()
         # Яндекс Музыка принимает только схему `OAuth <token>`; стандартный
         # `Bearer` отвечает 401. Проверено по библиотеке yandex-music.
         self.http.headers.update({"Authorization": f"OAuth {self.token}"})
@@ -467,16 +468,32 @@ class YandexMusicClient(MusicClient):
 
     def radio_batch(self, station: str, queue: str = "") -> tuple[list[Track], str]:
         """Get one personalized Yandex Radio batch (for example My Wave)."""
+        if not self._radio_request_lock.acquire(blocking=False):
+            raise MusicError("Волна Яндекс Музыки уже загружается. Дождитесь результата.")
         try:
             if self._stream_client is None:
                 from yandex_music import Client
 
                 self._stream_client = Client(self.token).init()
-            result = self._stream_client.rotor_station_tracks(
-                station, queue=queue or None
-            )
+            from yandex_music.exceptions import NetworkError, TimedOutError
+            for attempt in range(3):
+                try:
+                    result = self._stream_client.rotor_station_tracks(station, queue=queue or None, timeout=5)
+                    break
+                except (NetworkError, TimedOutError) as exc:
+                    # Inspect only for classification; never display raw signed responses.
+                    limited = "429" in str(exc) or "Concurrency limit exceeded" in str(exc)
+                    if attempt == 2:
+                        message = ("Яндекс временно ограничил загрузку «Моей волны». Подождите немного и повторите."
+                                   if limited else "Не удалось связаться с волной Яндекса. Повторите попытку через несколько секунд.")
+                        raise MusicError(message) from exc
+                    time.sleep((1, 2)[attempt])
+        except MusicError:
+            raise
         except Exception as exc:
             raise MusicError("Яндекс Музыка не смогла загрузить волну.") from exc
+        finally:
+            self._radio_request_lock.release()
         if result is None:
             raise MusicError("Яндекс Музыка не вернула треки для этой волны.")
 
@@ -3253,6 +3270,8 @@ class AstraMusic(Plugin):
             self._visualizer_settings = updated
         if updated["mode"] != "all" or not (updated["widget"] or updated["background"]):
             self._system_audio.pause()
+        if updated["mode"] != "music" or not (updated["widget"] or updated["background"]):
+            self._spotify.set_visualizer(False)
         return dict(updated)
 
     @ui_call("music_visualizer_state")
@@ -3269,9 +3288,11 @@ class AstraMusic(Plugin):
             fresh = (playing and self._music_audio_sample_revision == revision
                      and time.monotonic() - self._music_audio_sample_at < 0.8)
             bands = self._system_audio.snapshot() if system_enabled else list(self._music_audio_bands) if fresh else []
-            return {"settings": settings, "playing": playing,
-                    "revision": revision, "bands": bands,
-                    "audio_error": self._system_audio.error if system_enabled else ""}
+            spotify_meter = playing and self._playback_state.get("service") == "spotify" and settings["mode"] == "music" and (settings["widget"] or settings["background"])
+        self._spotify.set_visualizer(spotify_meter)
+        return {"settings": settings, "playing": playing,
+                "revision": revision, "bands": bands,
+                "audio_error": self._system_audio.error if system_enabled else ""}
 
     @ui_call("music_visualizer_sample")
     async def ui_visualizer_sample(self, **params: Any) -> dict[str, Any]:

@@ -73,6 +73,42 @@ class SpotifyBrowser:
         self.audio = None
         self.jobs = {}
         self.restore_checked = False
+        self._meter_request = None
+
+    def set_visualizer(self, enabled):
+        """Notify the helper without waiting on its stdout reader thread."""
+        with self.lock:
+            process = self.process
+            if not process or process.poll() is not None:
+                self._meter_request = None
+                return
+            requested = (process, bool(enabled))
+            if requested == self._meter_request:
+                return
+            try:
+                process.stdin.write(json.dumps({"id": 0, "action": "visualizer", "enabled": bool(enabled)}) + "\n")
+                process.stdin.flush()
+                self._meter_request = requested
+            except OSError:
+                self._meter_request = None
+
+    def _publish_bands(self, process, bands):
+        if not isinstance(bands, list) or len(bands) != 48:
+            return
+        if not all(isinstance(n, (int, float)) and not isinstance(n, bool) and math.isfinite(n) and 0 <= n <= 1 for n in bands):
+            return
+        with self.lock:
+            if self.process is not process or not self.active:
+                return
+            p = self.plugin
+            with p._playback_lock:
+                settings = p._visualizer_settings
+                if (p._playback_state.get("service") != "spotify" or p._playback_state.get("status") != "playing"
+                        or settings["mode"] != "music" or not (settings["widget"] or settings["background"])):
+                    return
+                p._music_audio_bands = list(bands)
+                p._music_audio_sample_at = time.monotonic()
+                p._music_audio_sample_revision = p._playback_state.get("revision", 0)
 
     def restore_saved(self):
         if self.restore_checked:
@@ -318,6 +354,8 @@ class SpotifyBrowser:
                         self.ready.set()
                     elif event.get("type") == "state":
                         self._publish(event.get("state", {}))
+                    elif event.get("type") == "visualizer":
+                        self._publish_bands(process, event.get("bands"))
                     elif event.get("type") in {"audio", "audio-failure"}:
                         with self.lock:
                             capture = self.audio if self.process is process else None
