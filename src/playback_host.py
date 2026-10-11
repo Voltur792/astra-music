@@ -120,7 +120,7 @@ class PlaybackHost:
                             self.send_error(404); return
                         data = path.read_bytes()
                         mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}[path.suffix]
-                        if name in {"player-v12.html", "desktop-widget.html"}:
+                        if name in {"index.html", "player-remote.html", "player-v12.html", "desktop-widget.html"}:
                             data = data.replace(b'<script src="http://astra-plugin.localhost/bridge/astra-bridge.js"></script>', b'<script src="native-bridge.js"></script>')
                             data = data.replace(b'preload="none"', b'preload="auto"')
                     self.send_response(200)
@@ -138,6 +138,15 @@ class PlaybackHost:
                     methods = {
                         "music_playback_state": host.plugin.ui_playback_state,
                         "music_playback_status": host.plugin.ui_playback_status,
+                        "music_spotify_status": host.plugin.ui_spotify_status,
+                        "music_spotify_job_start": host.plugin.ui_spotify_job_start,
+                        "music_spotify_job_status": host.plugin.ui_spotify_job_status,
+                        "music_connection_status": host.plugin.ui_connection_status,
+                        "music_search": host.plugin.ui_search,
+                        "music_list_playlists": host.plugin.ui_list_playlists,
+                        "music_list_playlist_tracks": host.plugin.ui_list_playlist_tracks,
+                        "music_play_track": host.plugin.ui_play_track,
+                        "music_play_playlist": host.plugin.ui_play_playlist,
                         "music_visualizer_state": host.plugin.ui_visualizer_state,
                         "music_desktop_get": host.plugin.ui_desktop_get,
                         "music_desktop_report": host.plugin.ui_desktop_report,
@@ -233,13 +242,14 @@ class PlaybackHost:
                             except Exception:
                                 log.exception("Audio page recovery failed")
                         with self.plugin._playback_lock:
-                            self.plugin._playback_state.update(status="failed", playback_error="AudioHostUnresponsive")
+                            if self.plugin._playback_state.get("service") != "spotify":
+                                self.plugin._playback_state.update(status="failed", playback_error="AudioHostUnresponsive")
                         return
                     threading.Event().wait(.5)
                 process.wait()
                 if not self.closing and self.process is process:
                     with self.plugin._playback_lock:
-                        if self.plugin._playback_state.get("track_id"):
+                        if self.plugin._playback_state.get("track_id") and self.plugin._playback_state.get("service") != "spotify":
                             self.plugin._playback_state.update(status="failed", playback_error="AudioHostUnavailable")
             threading.Thread(target=watch_process, daemon=True, name="music-player-watch").start()
 

@@ -26,8 +26,19 @@
     { id: "desktop", label: "Только приложение" },
     { id: "browser", label: "Только браузер" },
   ];
+  const SEARCH_SERVICES = [...SERVICES, {id:'spotify', label:'Spotify'}];
 
   const state = { service: "yandex", mode: "auto", status: {}, tracks: [], selectedTrack: null };
+  let spotifyConnected = false;
+  function renderConnectionSummary() {
+    const count = SERVICES.filter(service => state.status[service.id]?.configured).length + Number(spotifyConnected);
+    setPill($("status"), count ? count + " из " + SEARCH_SERVICES.length : "нет подключений", count ? "good" : "bad");
+  }
+  window.addEventListener('spotify-status', event => {
+    const data = event.detail || {};
+    spotifyConnected = data.logged_in === true && !!(data.running || data.active);
+    renderConnectionSummary();
+  });
   const UI_STATE_KEY = "music-controller-ui-v1";
   const SEARCH_CACHE_VERSION = 2;
   let persistTimer = null;
@@ -50,6 +61,8 @@
     if (!window.astra || !window.astra.callBackend) {
       return Promise.reject(new Error("Astra bridge недоступен: страница открыта вне Astra"));
     }
+    const spotifyOperations = {music_search:'search', music_list_playlists:'playlists', music_list_playlist_tracks:'tracks', music_play_playlist:'playlist', music_play_track:'track'};
+    if (params?.service === 'spotify' && spotifyOperations[method]) return window.astraSpotifyJob(spotifyOperations[method], params);
     return window.astra.callBackend(method, params || {}).then(parseResult);
   }
 
@@ -91,7 +104,7 @@
     try {
       const saved = parseResult(await window.astra.getData(UI_STATE_KEY));
       if (typeof saved.query === "string") $("query").value = saved.query;
-      if (SERVICES.some((service) => service.id === saved.service)) {
+      if (SEARCH_SERVICES.some((service) => service.id === saved.service)) {
         state.service = saved.service;
         serviceDropdown.set(saved.service);
       }
@@ -108,7 +121,7 @@
       const playback = parseResult(await callBackend("music_playback_status").catch(() => ({})));
       if (playback.track_id) {
         state.selectedTrack = {
-          service: "yandex",
+          service: playback.service || "yandex",
           track_id: String(playback.track_id),
           title: playback.title || "",
           artist: playback.artist || "",
@@ -502,15 +515,12 @@
       card.querySelector("button.danger").hidden = !info.configured;
     });
     const connected = Object.keys(state.status).filter((key) => state.status[key].configured);
-    setPill(
-      $("status"),
-      connected.length ? connected.length + " из " + Object.keys(state.status).length : "нет подключений",
-      connected.length ? "good" : "bad"
-    );
-    if (!state.status[state.service] || !state.status[state.service].configured) {
-      if (connected[0]) {
-        state.service = connected[0];
-        serviceDropdown.set(connected[0]);
+    renderConnectionSummary();
+    if (state.service !== "spotify" && (!state.status[state.service] || !state.status[state.service].configured)) {
+      const searchable = connected.find(id => SERVICES.some(service => service.id === id));
+      if (searchable) {
+        state.service = searchable;
+        serviceDropdown.set(searchable);
         state.tracks = [];
         $("results").replaceChildren();
         $("playlists").replaceChildren();
@@ -542,7 +552,7 @@
     const play = document.createElement("button");
     play.type = "button";
     play.className = "primary";
-    play.textContent = ["yandex", "vk"].includes(track.service) ? "Играть в Astra" : "Открыть трек";
+    play.textContent = "Играть в Astra";
     play.addEventListener("click", () => {
       if (track.service === "yandex") playYandexInline(track);
       else if (track.service === "vk") playVkInline(track);
@@ -637,12 +647,17 @@
         url: track.url,
         context_id: track.context_id,
         extra: track.extra || {},
+        playlist_id: track.playlist_id,
+        playlist_name: track.playlist_name,
       });
       if (result.error) throw new Error(result.error);
       const name = (track.artist ? track.artist + " — " : "") + (track.title || "");
       if (result.playing) {
         message("Играет: " + name, "good");
         return;
+      }
+      if (track.service === 'spotify' && method !== 'music_open_track') {
+        message(result.message || 'Spotify не подтвердил воспроизведение.', 'bad'); return;
       }
       if (result.opened_via === "desktop") {
         message("Открыто в приложении Яндекс Музыка: " + name + ". Если не заиграло само — нажмите «Воспроизвести».", "good");
@@ -727,12 +742,13 @@
           who.append(title, sub);
           const actions = document.createElement("div");
           actions.className = "actions";
-          if (["yandex", "vk"].includes(playlist.service)) {
+          if (["yandex", "vk", "spotify"].includes(playlist.service)) {
             const playAll = document.createElement("button");
             playAll.type = "button";
             playAll.className = "primary";
             playAll.textContent = "Играть в Astra";
-            playAll.addEventListener("click", () => playlist.service === "vk"
+            playAll.addEventListener("click", () => playlist.service === "spotify"
+              ? runTrack('music_play_playlist', {...playlist,playlist_name:playlist.title}) : playlist.service === "vk"
               ? playVkPlaylistInline(playlist)
               : playYandexPlaylistInline(playlist));
             actions.append(playAll);
@@ -887,7 +903,7 @@
     }
   });
 
-  const serviceDropdown = dropdown($("serviceTrigger"), $("serviceMenu"), SERVICES, state.service, (id) => {
+  const serviceDropdown = dropdown($("serviceTrigger"), $("serviceMenu"), SEARCH_SERVICES, state.service, (id) => {
     if (state.service === id) return;
     state.service = id;
     state.tracks = [];
@@ -897,6 +913,11 @@
     $("radioBtn").disabled = id !== "yandex";
     message("");
     persistUiState();
+  });
+  window.addEventListener('spotify-search', event=>{
+    state.service='spotify'; serviceDropdown.set('spotify');
+    $('query').value=event.detail; $('radioBtn').disabled=true;
+    void searchTracks(); $('results').scrollIntoView({block:'nearest'});
   });
   $("radioBtn").disabled = state.service !== "yandex";
   $("radioBtn").addEventListener("click", playYandexRadioInline);

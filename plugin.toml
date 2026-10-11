@@ -1,8 +1,8 @@
 [plugin]
 id = "music-controller"
 name = "Music Controller"
-version = "1.1.8"
-description = "Search Yandex Music and VK; play tracks and playlists inside Astra with voice controls."
+version = "1.3.0"
+description = "Search Yandex Music, VK and Spotify; play tracks and playlists inside Astra with voice controls."
 call_timeout_secs = 600
 author = "Voltur"
 license = "MIT"
@@ -20,12 +20,13 @@ actions = true
 ui_contributions = true
 event_handlers = true
 
-# Outbound host calls are default-deny. The only host subscription used here
-# delivers Astra's listening/speaking state so music volume can duck locally.
+# Outbound host calls are default-deny. State events duck music while Astra
+# speaks; the opt-in presenter uses Astra's chat for its spoken links.
 # The tab still talks to its own process over CallFromUi, and account tokens
 # remain in the plugin's data folder.
 [permissions]
-subscribe_events = { types = ["state_changed"], reason = "Temporarily lower the music player's volume while Astra is listening, then restore it" }
+send_chat_message = { reason = "Optional radio presenter: announces songs using Astra's configured personality, model and voice only when enabled by the user" }
+subscribe_events = { types = ["state_changed", "tts_started", "tts_completed", "tts_interrupted"], reason = "Temporarily lower the music player's volume while Astra listens or speaks, including optional radio announcements, then restore it" }
 
 # Tokens are entered in the plugin's own tab and stored under
 # %APPDATA%\music-controller\settings.json, so Astra shows no settings form.

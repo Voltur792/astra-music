@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -25,15 +26,42 @@ from .tab_icon import TAB_ICON_SVG
 from .playback_host import PlaybackHost
 from .system_audio import SystemAudio
 from .desktop_widget import DesktopWidget
+from .spotify_browser import SpotifyBrowser
+from .radio_presenter import RadioPresenter, radio_settings
 
 log = logging.getLogger("astra-music")
 
-VISUALIZER_DEFAULTS = {"mode": "music", "widget": True, "background": False, "style": "waves", "intensity": 0.65}
-VISUALIZER_STYLES = {"spectrum", "waves", "liquid", "ripple", "ribbon", "orbit", "particles", "mesh", "binary", "terrain", "silk", "splash", "rain", "contour"}
+VISUALIZER_DEFAULTS = {"mode": "music", "widget": True, "background": False, "style": "waves", "intensity": 0.65, "customizations": {}}
+VISUALIZER_STYLES = {"spectrum", "waves", "liquid", "ripple", "ribbon", "orbit", "particles", "mesh", "binary", "terrain", "silk", "splash", "rain", "contour", "aurora", "tunnel", "stars", "flower"}
+VISUALIZER_CUSTOM_DEFAULTS = {"palette": "original", "color1": "#38d9ef", "color2": "#d857ff", "scale": 1.0,
+                              "brightness": 1.0, "thickness": 1.0, "blur": 0.0, "speed": 1.0, "density": 1.0, "width": 1.0, "height": 1.0}
+VISUALIZER_CUSTOM_RANGES = {"scale": (.5, 2), "brightness": (.25, 2.5), "thickness": (.25, 3),
+                            "blur": (0, 8), "speed": (.25, 2.5), "density": (.5, 2), "width": (.5, 2), "height": (.5, 2)}
+
+
+def _visualizer_customization(value):
+    result = dict(VISUALIZER_CUSTOM_DEFAULTS)
+    if not isinstance(value, dict):
+        return result
+    if value.get("palette") in {"original", "single", "gradient"}:
+        result["palette"] = value["palette"]
+    for key in ("color1", "color2"):
+        color = value.get(key)
+        if isinstance(color, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+            result[key] = color.lower()
+    for key, (minimum, maximum) in VISUALIZER_CUSTOM_RANGES.items():
+        try:
+            number = float(value.get(key, result[key]))
+            if math.isfinite(number):
+                result[key] = max(minimum, min(maximum, number))
+        except (ValueError, TypeError):
+            pass
+    return result
 
 
 def _visualizer_settings(value: Any) -> dict[str, Any]:
     settings = dict(VISUALIZER_DEFAULTS)
+    settings["customizations"] = {}
     if not isinstance(value, dict):
         return settings
     if value.get("mode") in {"off", "all", "music"}:
@@ -49,6 +77,10 @@ def _visualizer_settings(value: Any) -> dict[str, Any]:
             settings["intensity"] = intensity
     except (ValueError, TypeError):
         pass
+    if isinstance(value.get("customizations"), dict):
+        settings["customizations"] = {style: _visualizer_customization(custom)
+                                      for style, custom in value["customizations"].items()
+                                      if style in VISUALIZER_STYLES and isinstance(custom, dict)}
     return settings
 
 
@@ -63,9 +95,10 @@ class Track:
     context_id: str = ""
     extra: dict[str, Any] | None = None
     cover_url: str = ""
+    duration_seconds: float = 0
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "service": self.service,
             "track_id": self.track_id,
             "title": self.title,
@@ -76,6 +109,9 @@ class Track:
             "extra": self.extra or {},
             "cover_url": self.cover_url,
         }
+        if self.duration_seconds > 0:
+            result['duration_seconds'] = self.duration_seconds
+        return result
 
 
 class MusicError(RuntimeError):
@@ -558,6 +594,7 @@ class YandexMusicClient(MusicClient):
             album=str(albums[0].get("title") or "") if albums else "",
             url=f"https://music.yandex.ru/track/{track_id}",
             extra={"artist_id": artist_id, "album_id": album_id},
+            duration_seconds=max(0, float(item.get('durationMs') or item.get('duration_ms') or 0) / 1000),
             cover_url=_yandex_cover_url(
                 item.get("coverUri") or item.get("cover_uri")
                 or (albums[0].get("coverUri") or albums[0].get("cover_uri") if albums else "")
@@ -676,6 +713,7 @@ class VkMusicClient(MusicClient):
             album=str(item.get("album") or ""),
             url=f"https://vk.com/audio{owner_id}_{track_id}",
             extra={"owner_id": owner_id},
+            duration_seconds=max(0, float(item.get('duration') or 0)),
         )
 
     @staticmethod
@@ -694,11 +732,13 @@ CLIENTS = {
 SERVICE_LABELS = {
     "yandex": "Яндекс Музыка",
     "vk": "VK Музыка",
+    "spotify": "Spotify",
 }
 # Words a person or the model actually uses for a service, in any case.
 SERVICE_ALIASES = {
     "yandex": ("yandex", "яндекс", "yamusic", "я.музыка", "ямusic"),
     "vk": ("vk", "вк", "vkmusic", "вконтакте", "vk music"),
+    "spotify": ("spotify", "спотифай", "спотифи"),
 }
 
 
@@ -801,6 +841,8 @@ class AstraMusic(Plugin):
         from .discord_music import DiscordSource
         self._discord_music = DiscordSource(self)
         self._desktop_widget = DesktopWidget(self)
+        self._spotify = SpotifyBrowser(self)
+        self._presenter = RadioPresenter(self)
         self._system_audio = SystemAudio()
         self._visualizer_settings = _visualizer_settings(self._read_settings().get("visualizer"))
         self._music_audio_bands: list[float] = []
@@ -847,7 +889,7 @@ class AstraMusic(Plugin):
             # in an otherwise successful state dict makes the SDK return an
             # empty result_json instead of serializing the state.
             "status": "stopped", "playback_error": "",
-            "position_seconds": 0.0, "duration_seconds": 0.0,
+            "position_seconds": 0.0, "duration_seconds": 0.0, "position_updated_at": time.time(),
             "volume": self._playback_volume,
             "command": "", "command_revision": 0,
             "queue_index": -1, "queue_count": 0,
@@ -867,6 +909,8 @@ class AstraMusic(Plugin):
 
     async def on_config_changed(self, config: dict[str, Any]):
         self._load_clients()
+        self._presenter.start()
+        await asyncio.to_thread(self._spotify.restore_saved)
         await asyncio.to_thread(self._desktop_widget.ensure)
         from .timer_integration import IntegrationServer
         if not hasattr(self, "_timer_bridge"):
@@ -874,6 +918,8 @@ class AstraMusic(Plugin):
                 "search": self.ui_search, "current": self._timer_music_current,
                 "play": self._timer_music_play, "pause": self._timer_music_pause,
                 "stop": self._timer_music_stop,
+                "stream_status": self._stream_music_status,
+                "stream_control": self._stream_music_control,
                 "discord_play": self._discord_music.play,
                 "discord_state": self._discord_music.current,
                 "discord_refresh": self._discord_music.refresh,
@@ -922,6 +968,24 @@ class AstraMusic(Plugin):
     async def _timer_music_pause(self):
         return await self.ui_playback_control(action="pause")
 
+    async def _stream_music_status(self):
+        result = await self.ui_playback_status()
+        result['finished_revision'] = getattr(self, '_stream_finished_revision', None)
+        with self._playback_lock:
+            # The stream panel uses 0–10 while HTML audio uses 0–1. Expose
+            # the user's level separately from temporary voice ducking.
+            result['requested_volume'] = (self._duck_restore_volume
+                                          if self._duck_restore_volume is not None else self._playback_volume)
+            result['ducked'] = self._duck_restore_volume is not None
+            result['position_updated_at'] = self._playback_state.get('position_updated_at', time.time())
+        result['position_sample_age'] = max(0.0, time.time() - result['position_updated_at'])
+        return result
+
+    async def _stream_music_control(self, action, value=0):
+        if action not in {'play', 'pause', 'stop', 'next', 'previous', 'volume'}:
+            return {'error': 'Неизвестная команда музыки.'}
+        return await self.ui_playback_control(action=action, value=value)
+
     async def _timer_music_stop(self, revision):
         state = await self.ui_playback_state()
         if state.get("revision") == revision:
@@ -929,7 +993,11 @@ class AstraMusic(Plugin):
         return {"ok": True, "changed": True}
 
     def subscribed_events(self) -> list[str]:
-        return ["state_changed"]
+        return ["state_changed", "tts_started", "tts_completed", "tts_interrupted"]
+
+    async def on_event(self, event_type: str, payload: dict) -> None:
+        if event_type in {"tts_started", "tts_completed", "tts_interrupted"}:
+            await asyncio.to_thread(self._presenter.on_tts_event, event_type)
 
     async def on_state_changed(self, event: dict[str, Any]) -> None:
         """Duck only this plugin's player while Astra handles a voice request."""
@@ -957,7 +1025,8 @@ class AstraMusic(Plugin):
             if self._duck_reasons:
                 if self._duck_restore_volume is not None:
                     return
-                if self._playback_state.get("status") != "playing" or not self._playback_state.get("url"):
+                if (self._playback_state.get("status") != "playing"
+                        or not (self._playback_state.get("url") or self._playback_state.get("service") == "spotify")):
                     return
                 self._duck_restore_volume = self._playback_volume
                 self._playback_volume = min(self._playback_volume, 0.1)
@@ -971,6 +1040,12 @@ class AstraMusic(Plugin):
             self._playback_state["command"] = "volume"
             self._playback_state["volume"] = self._playback_volume
             log.info("Astra music volume %s (reason=%s)", "ducked" if self._duck_restore_volume is not None else "restored", reason)
+            spotify_volume = self._playback_volume if self._playback_state.get("service") == "spotify" else None
+        if spotify_volume is not None and self._spotify.audio is None:
+            try:
+                self._spotify.request("volume", spotify_volume)
+            except Exception:
+                log.warning("Spotify did not confirm temporary volume change")
 
     def _load_clients(self) -> None:
         for client in self.clients.values():
@@ -1406,11 +1481,14 @@ class AstraMusic(Plugin):
             url=str(row.get("url") or f"https://vk.com/audio{owner_id}_{track_id}"),
             extra=extra,
             cover_url=_vk_cover_url(row.get("cover_url", "")),
+            duration_seconds=max(0, float(row.get('duration_seconds') or row.get('duration') or 0)),
         )
 
     def _search_sync(self, service: str, query: str, limit: int) -> dict[str, Any]:
         if not query.strip():
             return {"error": "Пустой поисковый запрос", "service": service}
+        if service == "spotify":
+            return self._spotify.browse("search", query=query, limit=limit)
         if service == "vk" and self._vk_cookie_file.is_file():
             result = self._easyvk_call_sync("search", query=query, limit=limit)
             tracks = [
@@ -1433,6 +1511,8 @@ class AstraMusic(Plugin):
         }
 
     def _playlists_sync(self, service: str) -> dict[str, Any]:
+        if service == "spotify":
+            return self._spotify.browse("playlists")
         if service == "vk" and self._vk_cookie_file.is_file():
             result = self._easyvk_call_sync("playlists")
             playlists = [item for item in result.get("playlists", []) if isinstance(item, dict)]
@@ -1441,6 +1521,8 @@ class AstraMusic(Plugin):
         return {"service": service, "count": len(playlists), "playlists": playlists}
 
     def _playlist_tracks_sync(self, service: str, playlist_id: str, limit: int) -> dict[str, Any]:
+        if service == "spotify":
+            return self._spotify.browse("playlist_tracks", playlist_id=playlist_id, limit=limit)
         if not playlist_id.strip():
             return {"error": "Не указан идентификатор плейлиста", "service": service}
         if service == "vk" and self._vk_cookie_file.is_file() and playlist_id != "audio":
@@ -1522,6 +1604,8 @@ class AstraMusic(Plugin):
         track_id = str(self._pick(args, "track_id")).strip()
         if not track_id:
             return {"error": "Не указан идентификатор трека", "service": service}
+        if service == "spotify":
+            return self._spotify.start("https://open.spotify.com/track/" + track_id)
         extra = self._as_map(self._pick(args, "extra"))
         if service == "vk" and not extra.get("owner_id") and self._vk_cookie_file.is_file():
             query = " ".join(
@@ -1597,6 +1681,7 @@ class AstraMusic(Plugin):
     ) -> dict[str, Any]:
         if not tracks:
             raise MusicError("В очереди VK нет доступных треков.")
+        self._spotify.release()
         previous = (
             self._playback_source,
             self._playback_source_title,
@@ -1687,7 +1772,7 @@ class AstraMusic(Plugin):
                 "expires_at": time.time() + 40,
                 "status": "play_requested" if auto_play else "ready",
                 "playback_error": "",
-                "position_seconds": max(0.0, position_seconds),
+                "position_seconds": max(0.0, position_seconds), "position_updated_at": time.time(),
                 "duration_seconds": duration,
                 "volume": self._playback_volume,
                 "command": "play" if auto_play else "load",
@@ -1832,6 +1917,7 @@ class AstraMusic(Plugin):
     ) -> dict[str, Any]:
         if not tracks:
             raise MusicError("В очереди нет доступных треков.")
+        self._spotify.release()
         self._playback_source = source
         self._playback_source_title = source_title
         self._playback_queue = [
@@ -1916,7 +2002,7 @@ class AstraMusic(Plugin):
                 "expires_at": time.time() + 60,
                 "status": "play_requested" if auto_play else "ready",
                 "playback_error": "",
-                "position_seconds": max(0.0, position_seconds),
+                "position_seconds": max(0.0, position_seconds), "position_updated_at": time.time(),
                 "duration_seconds": 0.0,
                 "volume": self._playback_volume,
                 "command": "play" if auto_play else "load",
@@ -2060,6 +2146,8 @@ class AstraMusic(Plugin):
             "лайкни": "like", "лайк": "like", "нравится": "like",
         }
         action = aliases.get(action, action)
+        if self._playback_state.get("service") == "spotify" and self._spotify.active:
+            return self._spotify.control(action, value)
         if action == "stop":
             return self._stop_playback_sync()
         if action == "like":
@@ -2167,6 +2255,7 @@ class AstraMusic(Plugin):
             if command == "seek":
                 self._playback_state["seek_to_seconds"] = value
                 self._playback_state["position_seconds"] = value
+                self._playback_state['position_updated_at'] = time.time()
             elif command == "play":
                 self._playback_state["status"] = "play_requested"
                 self._playback_state["playback_error"] = ""
@@ -2186,7 +2275,9 @@ class AstraMusic(Plugin):
             ),
         }
 
-    def _stop_playback_sync(self) -> dict[str, Any]:
+    def _stop_playback_sync(self, release_spotify: bool = True) -> dict[str, Any]:
+        if release_spotify:
+            self._spotify.release()
         try:
             self._clear_playback_selection()
         except OSError:
@@ -2203,7 +2294,7 @@ class AstraMusic(Plugin):
                 "service": "yandex",
                 "url": "", "title": "", "artist": "", "track_id": "",
                 "status": "stopped", "playback_error": "",
-                "position_seconds": 0.0, "duration_seconds": 0.0,
+                "position_seconds": 0.0, "duration_seconds": 0.0, "position_updated_at": time.time(),
                 "volume": self._playback_volume,
                 "command": "stop", "command_revision": self._playback_command_revision,
                 "queue_index": -1, "queue_count": 0,
@@ -2670,6 +2761,13 @@ class AstraMusic(Plugin):
                 for service in CLIENTS
             }
         }
+        spotify = self._spotify.snapshot()
+        status["services"]["spotify"] = {
+            "label": "Spotify · пробное подключение",
+            "configured": bool(spotify.get("logged_in") and spotify.get("running")),
+            "session_saved": spotify["session_saved"], "running": spotify["running"],
+            "active": spotify["active"], "experimental": True,
+        }
         if full:
             # Only the tab asks for this: an account name and a local path are
             # useless to the model and would only widen what leaves the plugin.
@@ -2692,7 +2790,7 @@ class AstraMusic(Plugin):
 
     # --- tools -------------------------------------------------------------
 
-    @tool("Search a song or artist by name in exactly one music service: service is 'yandex' or 'vk'. Use the service the user explicitly requested. VK search accepts names; no direct track URL is needed. If VK returns an error or zero tracks, report the actual result and stop: do not ask the user for a direct link or silently retry via Yandex or another service. After a VK result, pass its service, track_id, title, artist, album, url, cover_url and extra to play_track. Never claim playback succeeded unless play_track returns playing=true.")
+    @tool("Search a song or artist by name in exactly one music service (Spotify uses its signed-in web player without an API token): service is 'yandex', 'vk' or 'spotify'. Use the service the user explicitly requested. VK search accepts names; no direct track URL is needed. If VK returns an error or zero tracks, report the actual result and stop: do not ask the user for a direct link or silently retry via Yandex or another service. After a VK result, pass its service, track_id, title, artist, album, url, cover_url and extra to play_track. Never claim playback succeeded unless play_track returns playing=true.")
     async def search_tracks(self, service: str = "", query: str = "", limit: int = 10, kwargs: str = "") -> dict[str, Any]:
         args = self._args(kwargs, service=service, query=query, limit=limit)
         query = str(self._pick(args, "query") or args.get("_raw") or "")
@@ -2714,7 +2812,7 @@ class AstraMusic(Plugin):
                 result.setdefault("message", "VK не вернул совпадений. Не повторяйте поиск через другой сервис.")
         return result
 
-    @tool("List the user's playlists in exactly one music service: service is 'yandex' or 'vk'. The authenticated local VK session DOES provide personal VK playlists; call this tool when asked whether you can see them. Never claim VK playlists are inaccessible without calling it. For a named playlist, play_playlist can accept its exact title directly.")
+    @tool("List the user's playlists in exactly one music service: service is 'yandex', 'vk' or 'spotify'. The authenticated local VK session DOES provide personal VK playlists; call this tool when asked whether you can see them. Never claim VK playlists are inaccessible without calling it. For a named playlist, play_playlist can accept its exact title directly.")
     async def list_playlists(self, service: str = "", kwargs: str = "") -> dict[str, Any]:
         args = self._args(kwargs, service=service)
         try:
@@ -2731,7 +2829,7 @@ class AstraMusic(Plugin):
     async def list_vk_playlists(self) -> dict[str, Any]:
         return await self.list_playlists(service="vk")
 
-    @tool("List tracks inside one playlist. Needs service ('yandex', 'vk') and playlist_id from list_playlists; limit is 1..100. To start a whole Yandex or VK playlist in Astra, use play_playlist instead.")
+    @tool("List tracks inside one playlist. Needs service ('yandex', 'vk', 'spotify') and playlist_id from list_playlists; limit is 1..100. To start a whole Yandex or VK playlist in Astra, use play_playlist instead.")
     async def list_playlist_tracks(self, service: str = "", playlist_id: str = "", limit: int = 50, kwargs: str = "") -> dict[str, Any]:
         args = self._args(kwargs, service=service, playlist_id=playlist_id, limit=limit)
         try:
@@ -2778,7 +2876,7 @@ class AstraMusic(Plugin):
             pass
         return result
 
-    @tool("Actually START a named Yandex Music or VK playlist inside Astra. Call this tool when the user asks to play a playlist; saying 'I am starting it' without a tool call does nothing. Pass the exact title in playlist_name directly; this tool looks up the user's playlists itself, so a separate list_playlists call is optional. Use the service the user named. Report success only when this tool returns playing=true; otherwise report its actual error. Never switch services silently.")
+    @tool("Actually START a named Yandex Music, VK or Spotify playlist inside Astra. Call this tool when the user asks to play a playlist; saying 'I am starting it' without a tool call does nothing. Pass the exact title in playlist_name directly; this tool looks up the user's playlists itself, so a separate list_playlists call is optional. Use the service the user named. Report success only when this tool returns playing=true; otherwise report its actual error. Never switch services silently.")
     async def play_playlist(
         self,
         service: str = "",
@@ -2791,6 +2889,8 @@ class AstraMusic(Plugin):
             resolved = self._resolve_service(self._pick(args, "service"))
         except MusicError as exc:
             return {"error": str(exc)}
+        if resolved == "spotify":
+            return await self._guarded(self._spotify.playlist, str(args.get("playlist_id", "") or ""), str(args.get("playlist_name", "") or ""))
         if resolved == "vk":
             result = await self._guarded(
                 self._start_vk_playlist_sync,
@@ -2850,7 +2950,7 @@ class AstraMusic(Plugin):
         )
         return await self._wait_for_playback_start(result)
 
-    @tool("Control the current Yandex Music or VK playback inside Astra. action must be play, pause, stop, next, previous, like, seek, forward, backward, volume, volume_up, volume_down, mute or unmute. For a specific spoken music volume level from 1 to 10, call set_music_volume instead of any Windows/system volume tool. Use like for Yandex songs; VK like is not yet supported. For volume_up/down, value is the number of levels to change (default 1). Use for 'пауза', 'перемотай на 1:20', 'сделай музыку громче' and 'следующий трек'.")
+    @tool("Control current Yandex Music, VK or an attached experimental Spotify web player from Astra. action must be play, pause, stop, next, previous, like, seek, forward, backward, volume, volume_up, volume_down, mute or unmute. For a specific spoken music volume level from 1 to 10, call set_music_volume instead of any Windows/system volume tool. Use like for Yandex songs; VK like is not yet supported. For volume_up/down, value is the number of levels to change (default 1). Use for 'пауза', 'перемотай на 1:20', 'сделай музыку громче' and 'следующий трек'.")
     async def control_music_playback(self, action: str = "", value: float = 0, kwargs: str = "") -> dict[str, Any]:
         args = self._args(kwargs, action=action, value=value)
         try:
@@ -3028,7 +3128,7 @@ class AstraMusic(Plugin):
     async def music_volume_10(self) -> str:
         return await self.music_shortcut("set_level", 10)
 
-    @tool("Open a track in the service's web player (a real browser window). Needs service ('yandex', 'vk') and track_id from search_tracks or list_playlist_tracks.")
+    @tool("Open a track in the service's web player (a real browser window). Needs service ('yandex', 'vk', 'spotify') and track_id from search_tracks or list_playlist_tracks.")
     async def open_track(
         self,
         service: str = "",
@@ -3054,7 +3154,7 @@ class AstraMusic(Plugin):
         )
         return await self._guarded(self._open_sync, args)
 
-    @tool("Save an access token for Yandex Music or a legacy VK API connection. Needs service ('yandex', 'vk') and token. For VK built-in audio, use the Music tab's local browser sign-in instead; tokens are never returned.")
+    @tool("Save an access token for Yandex Music or a legacy VK API connection. Needs service ('yandex', 'vk', 'spotify') and token. For VK built-in audio, use the Music tab's local browser sign-in instead; tokens are never returned.")
     async def save_token(
         self,
         service: str = "",
@@ -3069,17 +3169,17 @@ class AstraMusic(Plugin):
             found_token,
         )
 
-    @tool("Forget one music service connection: service is 'yandex' or 'vk'. For VK this also removes the local browser session.")
+    @tool("Forget one music service connection: service is 'yandex', 'vk' or 'spotify'. For VK this also removes the local browser session.")
     async def remove_token(self, service: str = "", kwargs: str = "") -> dict[str, Any]:
         args = self._args(kwargs, service=service)
         return await self._guarded(self._remove_token_sync, self._pick(args, "service"))
 
-    @tool("Check that Yandex Music or the local VK browser session is connected. Needs service ('yandex', 'vk'). Never returns credentials.")
+    @tool("Check that Yandex Music or the local VK browser session is connected. Needs service ('yandex', 'vk', 'spotify'). Never returns credentials.")
     async def test_connection(self, service: str = "", kwargs: str = "") -> dict[str, Any]:
         args = self._args(kwargs, service=service)
         return await self._guarded(self._test_connection_sync, self._pick(args, "service"))
 
-    @tool("Report which music services (Яндекс Музыка и VK Музыка) are connected. VK uses a local browser session; if session_valid is false, ask the user to sign in to VK again from the Music tab before searching or playing. A saved cookie file alone does not mean the session is valid.")
+    @tool("Report connected music services (Yandex Music, VK and the experimental Spotify browser player). Spotify uses open_spotify/use_spotify_player, not API token tools. VK uses a local browser session; if session_valid is false, ask the user to sign in to VK again from the Music tab before searching or playing. A saved cookie file alone does not mean the session is valid.")
     async def connection_status(self) -> dict[str, Any]:
         return await self._guarded(self._connection_status_sync)
 
@@ -3162,7 +3262,7 @@ class AstraMusic(Plugin):
         else:
             self._system_audio.pause()
         with self._playback_lock:
-            playing = self._playback_state.get("status") == "playing" and bool(self._playback_state.get("url"))
+            playing = self._playback_state.get("status") == "playing" and bool(self._playback_state.get("url") or self._playback_state.get("service") == "spotify")
             revision = self._playback_state.get("revision", 0)
             fresh = (playing and self._music_audio_sample_revision == revision
                      and time.monotonic() - self._music_audio_sample_at < 0.8)
@@ -3270,6 +3370,8 @@ class AstraMusic(Plugin):
             service = self._resolve_service(params.get("service", "yandex"))
         except MusicError as exc:
             return {"error": str(exc)}
+        if service == "spotify":
+            return await self._guarded(self._spotify.playlist, str(params.get("playlist_id", "") or ""), str(params.get("playlist_name", "") or ""))
         if service == "vk":
             return await self._guarded(
                 self._start_vk_playlist_sync,
@@ -3355,8 +3457,25 @@ class AstraMusic(Plugin):
         state["stream_url"] = state.get("url", "")
         return state
 
+    @ui_call("music_radio_get")
+    async def ui_radio_get(self, **params: Any) -> dict[str, Any]:
+        if self.host is not None:
+            self._presenter.start()
+        return {"settings": radio_settings(self._read_settings().get("radio_presenter")),
+                "message": self._presenter.message, "progress": self._presenter.progress}
+
+    @ui_call("music_radio_set")
+    async def ui_radio_set(self, **params: Any) -> dict[str, Any]:
+        settings = self._read_settings()
+        settings["radio_presenter"] = radio_settings(params.get("settings"))
+        self._write_settings(settings)
+        self._presenter.cancel()
+        return {"ok": True, **await self.ui_radio_get()}
+
     @ui_call("music_playback_report")
     async def ui_playback_report(self, **params: Any) -> dict[str, Any]:
+        if self._playback_state.get("service") == "spotify":
+            return {"ok": False}  # Only the Spotify browser reports its own state.
         try:
             revision = int(params.get("revision", -1))
         except (TypeError, ValueError):
@@ -3380,6 +3499,7 @@ class AstraMusic(Plugin):
                 self._playback_state["playback_error"] = error
             if position >= 0:
                 self._playback_state["position_seconds"] = position
+                self._playback_state['position_updated_at'] = time.time()
             if duration >= 0:
                 self._playback_state["duration_seconds"] = duration
             # The player reports its current audio.volume with a slight delay.
@@ -3428,6 +3548,7 @@ class AstraMusic(Plugin):
                 "revision", "service", "track_id", "title", "artist", "cover_url", "liked", "status", "playback_error", "position_seconds",
                 "duration_seconds", "volume", "queue_index", "queue_count",
                 "source", "source_title",
+                "can_next", "can_previous", "can_seek", "playback_message",
             )
         }
 
@@ -3438,7 +3559,72 @@ class AstraMusic(Plugin):
         except (TypeError, ValueError):
             value = 0.0
         action = str(params.get("action", "") or "")
-        return await self._guarded(self._playback_control_sync, action, value)
+        with self._playback_lock:
+            finished_revision = self._playback_state.get('revision')
+        result = await self._guarded(self._playback_control_sync, action, value)
+        if action == 'ended' and not result.get('error'):
+            self._stream_finished_revision = finished_revision
+        return result
+
+    @ui_call("music_spotify_open")
+    async def ui_spotify_open(self, **params: Any) -> dict[str, Any]:
+        return await self._guarded(self._spotify.open, str(params.get("url", "")), str(params.get("query", "")))
+
+    @ui_call("music_spotify_start")
+    async def ui_spotify_start(self, **params: Any) -> dict[str, Any]:
+        return await self._guarded(self._spotify.start, str(params.get("url", "")))
+
+    @ui_call("music_spotify_login")
+    async def ui_spotify_login(self, **params: Any) -> dict[str, Any]:
+        if self._spotify.active:
+            await asyncio.to_thread(self._spotify.close)
+            await asyncio.to_thread(self._stop_playback_sync)
+        return await self._guarded(self._spotify.login)
+
+    @ui_call("music_spotify_status")
+    async def ui_spotify_status(self, **params: Any) -> dict[str, Any]:
+        return self._spotify.snapshot()
+
+    @ui_call("music_spotify_job_start")
+    async def ui_spotify_job_start(self, **params: Any) -> dict[str, Any]:
+        return self._spotify.submit(str(params.get("operation", "")), params)
+
+    @ui_call("music_spotify_job_status")
+    async def ui_spotify_job_status(self, **params: Any) -> dict[str, Any]:
+        return self._spotify.job_status(str(params.get("job_id", "")))
+
+    @ui_call("music_spotify_presentation")
+    async def ui_spotify_presentation(self, **params: Any) -> dict[str, Any]:
+        return await self._guarded(self._spotify.presentation, bool(params.get("hidden", True)))
+
+    @ui_call("music_spotify_activate")
+    async def ui_spotify_activate(self, **params: Any) -> dict[str, Any]:
+        return await self._guarded(self._spotify.activate)
+
+    @ui_call("music_spotify_close")
+    async def ui_spotify_close(self, **params: Any) -> dict[str, Any]:
+        was_active = self._spotify.active
+        await asyncio.to_thread(self._spotify.close)
+        if was_active:
+            await asyncio.to_thread(self._stop_playback_sync)
+        return {"success": True, **self._spotify.snapshot()}
+
+    @ui_call("music_spotify_forget")
+    async def ui_spotify_forget(self, **params: Any) -> dict[str, Any]:
+        was_active = self._spotify.active
+        result = await self._guarded(self._spotify.forget)
+        if was_active and not result.get("error"):
+            await asyncio.to_thread(self._stop_playback_sync)
+        return result
+
+    @tool("Open the experimental Spotify web player with the user's saved browser session. query opens search; url accepts open.spotify.com track/playlist/album links. No Premium API is used. The user signs in and chooses music in the browser window; opening a window or search does NOT confirm playback. Never substitute another music service.")
+    async def open_spotify(self, query: str = "", url: str = "", kwargs: str = "") -> dict[str, Any]:
+        args = self._args(kwargs, query=query, url=url)
+        return await self._guarded(self._spotify.open, str(args.get("url", "")), str(args.get("query", "")))
+
+    @tool("Attach Astra's widgets and voice playback controls to the experimental Spotify web player after the user signs in. Report playing=true only if the browser confirms it. If no track is chosen, tell the user to select music in the Spotify window. Generic pause, next, previous, seek and volume controls then apply to Spotify.")
+    async def use_spotify_player(self, kwargs: str = "") -> dict[str, Any]:
+        return await self._guarded(self._spotify.activate)
 
     @ui_call("music_playback_stop")
     async def ui_playback_stop(self, **params: Any) -> dict[str, Any]:
@@ -3470,6 +3656,8 @@ class AstraMusic(Plugin):
         )
 
     async def on_shutdown(self) -> None:
+        await self._presenter.close()
+        self._spotify.close()
         self._discord_music.stop(self._discord_music.session)
         if hasattr(self, "_timer_bridge"):
             await asyncio.to_thread(self._timer_bridge.close)

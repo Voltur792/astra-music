@@ -1,5 +1,5 @@
 {
+  "locales": {},
   "schema": "astra.plugin.locales/1",
-  "source": "en",
-  "locales": {}
+  "source": "en"
 }

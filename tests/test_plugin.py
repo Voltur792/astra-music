@@ -80,6 +80,7 @@ def test_every_declared_tool_is_routed_and_its_schema_is_an_object():
             "list_playlist_tracks",
             "list_playlists",
             "list_vk_playlists",
+            "open_spotify",
             "open_track",
             "play_playlist",
             "play_track",
@@ -92,6 +93,7 @@ def test_every_declared_tool_is_routed_and_its_schema_is_an_object():
             "search_tracks",
             "set_music_volume",
             "test_connection",
+            "use_spotify_player",
         ]
         for name in h.tool_names():
             assert h.schema(name)["type"] == "object"

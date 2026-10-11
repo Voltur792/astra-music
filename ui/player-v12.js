@@ -443,6 +443,13 @@ async function sync() {
       }
     }
     const playableUrl = state.stream_url || state.url;
+    // Spotify owns its protected audio; this host must never try to load its
+    // page as an audio stream or report its idle element over Spotify's state.
+    if (state.service === "spotify") {
+      if (current) { clearAudioSource(); current = null; }
+      setPlayerVisible(false); setVisualPlaying(false);
+      return;
+    }
     if (!playableUrl) {
       setPlayerVisible(false);
       setVisualPlaying(false);

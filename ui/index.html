@@ -7,25 +7,31 @@
 <!-- The bridge must load first and in <head>: it installs Astra's real
      stylesheet, so the tokens below exist before the first paint. -->
 <script src="http://astra-plugin.localhost/bridge/astra-bridge.js"></script>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
 <!-- Astra's iframe has no intrinsic height: the root must be absolutely
      positioned, or the page collapses to zero. -->
 <main id="app">
   <header class="bar">
-    <h1>Музыка</h1>
+    <div class="music-heading"><span class="music-icon" aria-hidden="true">♫</span><div><h1>Astra Music</h1><p class="hint">Ваша музыка, плейлисты и радиоведущая Astra</p></div></div>
     <span id="status" class="pill" role="status">загрузка…</span>
   </header>
 
   <div class="scroll">
     <p class="note">
-      Яндекс Музыка запускается во встроенном плеере внизу Главной: выберите
-      трек, перейдите на Главную и нажмите ▶. VK воспроизводится там же после импорта сессии.
+      Выберите песню или плейлист — музыка продолжит играть при переходе между вкладками.
+      Управление доступно на Главной и в виджете рабочего стола.
       Если встроенный поток Яндекса недоступен, откройте трек в приложении сервиса.
       Если поток VK недоступен, откройте трек на странице VK.
     </p>
 
+    <nav class="music-tabs" role="tablist" aria-label="Разделы Astra Music">
+      <button type="button" role="tab" id="musicTabLibrary" aria-controls="musicPanelLibrary" aria-selected="true" data-music-tab="library">Музыка</button>
+      <button type="button" role="tab" id="musicTabConnections" aria-controls="musicPanelConnections" aria-selected="false" tabindex="-1" data-music-tab="connections">Подключения</button>
+      <button type="button" role="tab" id="musicTabSettings" aria-controls="musicPanelSettings" aria-selected="false" tabindex="-1" data-music-tab="settings">Настройки</button>
+    </nav>
+    <div id="musicPanelConnections" role="tabpanel" aria-labelledby="musicTabConnections" data-music-panel="connections" hidden>
     <section class="card" aria-label="Подключение сервисов">
       <h2>Подключение</h2>
       <p class="hint">
@@ -35,6 +41,26 @@
       <div id="services"></div>
     </section>
 
+    <section class="card" id="spotifySettings" aria-labelledby="spotifyHeading">
+      <div class="row"><h2 id="spotifyHeading">Spotify</h2><span class="pill" id="spotifyStatus">Пробное подключение</span></div>
+      <p class="hint" id="spotifyLoginHelp">Проверяем сохранённый вход…</p>
+      <p class="hint">Бесплатный тариф сохраняет рекламу и ограничения Spotify.</p>
+      <div class="row actions">
+        <button type="button" class="primary" id="spotifyOpen">Войти в Spotify</button>
+        <button type="button" id="spotifyActivate">Управлять из Astra</button>
+        <button type="button" id="spotifyClose">Закрыть Spotify</button>
+      </div>
+      <label class="visualizer-switch"><input type="checkbox" id="spotifyHidden" checked><span class="visualizer-switch-track" aria-hidden="true"></span><span>Работать без окна браузера</span></label>
+      <form class="row" id="spotifySearchForm">
+        <input type="search" id="spotifyQuery" placeholder="Поиск в Spotify или ссылка на плейлист" aria-label="Поиск или ссылка Spotify" autocomplete="off">
+        <button type="submit" id="spotifySearch">Найти / включить по ссылке</button>
+      </form>
+      <p class="hint" id="spotifyMessage" role="status">Выберите Spotify в разделе «Музыка» и найдите песню или свой плейлист. Музыка играет в фоне, управление доступно в виджетах.</p>
+      <details class="service-help"><summary>Сохранённый вход</summary><p class="hint">Пароль вводится только на сайте Spotify. Плагин читает название песни и состояние плеера; вход хранится в отдельном профиле браузера.</p><button type="button" id="spotifyForget">Удалить сохранённый вход Spotify</button></details>
+    </section>
+
+    </div>
+    <div id="musicPanelLibrary" role="tabpanel" aria-labelledby="musicTabLibrary" data-music-panel="library">
     <section class="card" aria-label="Поиск">
       <h2>Поиск</h2>
       <form id="searchForm" class="row">
@@ -43,7 +69,7 @@
                   aria-expanded="false" aria-label="Сервис">Яндекс Музыка</button>
           <ul class="menu" id="serviceMenu" role="listbox" aria-label="Сервис" hidden></ul>
         </div>
-        <input id="query" type="search" placeholder="Артист или трек" autocomplete="off">
+        <input id="query" type="search" placeholder="Артист или трек" aria-label="Исполнитель или название песни" autocomplete="off">
         <button type="button" class="primary" id="searchBtn">Найти</button>
       </form>
       <div id="results" class="list"></div>
@@ -62,11 +88,29 @@
         <button type="button" id="playlistBtn">Показать плейлисты выбранного сервиса</button>
         <button type="button" id="radioBtn">Включить «Мою волну»</button>
         <button type="button" id="myVkMusicBtn">Включить мои треки ВК</button>
+        <button type="button" id="spotifyMix">Включить мой микс Spotify</button>
       </div>
+      <p class="hint" id="spotifyMixMessage" role="status"></p>
       <div id="playlists" class="list"></div>
       <div id="playlistTracks" class="list"></div>
     </section>
 
+    </div>
+    <div id="musicPanelSettings" role="tabpanel" aria-labelledby="musicTabSettings" data-music-panel="settings" hidden>
+    <section class="card" id="radioSettings" aria-labelledby="radioHeading">
+      <div class="section-heading"><h2 id="radioHeading">Astra — радиоведущая</h2><span class="pill" id="radioSaveStatus" role="status">Загрузка…</span></div>
+      <p class="hint">Короткие подводки к песням с личностью и голосом, выбранными в Astra. Иногда ведущая добавляет рассказ о песне или исполнителе. Музыка на время речи становится тише.</p>
+      <label class="visualizer-switch"><input type="checkbox" id="radioEnabled" disabled><span class="visualizer-switch-track" aria-hidden="true"></span><span>Включить радиоведущую</span></label>
+      <label class="visualizer-switch"><input type="checkbox" id="radioNext" disabled><span class="visualizer-switch-track" aria-hidden="true"></span><span>Объявлять следующую песню</span></label>
+      <p class="hint">Когда очередь доступна, Astra представит следующую песню и может добавить короткий рассказ о ней. Если сервис её ещё не определил, подводка будет только о текущей.</p>
+      <div class="radio-frequency"><span id="radioFrequencyLabel">Частота подводок</span><div class="visualizer-mode" role="group" aria-labelledby="radioFrequencyLabel"><button type="button" data-radio-every="1" aria-pressed="false" disabled>Каждую песню</button><button type="button" data-radio-every="3" aria-pressed="true" disabled>Раз в 3 песни</button><button type="button" data-radio-every="5" aria-pressed="false" disabled>Раз в 5 песен</button></div></div>
+      <div class="radio-frequency"><span id="radioWhenLabel">Когда говорить</span><div class="visualizer-mode" role="group" aria-labelledby="radioWhenLabel"><button type="button" data-radio-when="start" aria-pressed="false" disabled>В начале песни</button><button type="button" data-radio-when="end" aria-pressed="true" disabled>В конце песни</button></div></div>
+      <p class="hint">В режиме «В конце» Astra начинает подводку за 30 секунд до завершения. Если сервис не сообщает длительность, подводка прозвучит в начале.</p>
+      <p class="hint">Настройки сохраняются автоматически. При передаче Spotify в Discord подводки озвучивает Discord-плагин, если режим включён и там.</p>
+      <p class="hint" id="radioMessage" role="status"></p>
+      <p class="hint" id="radioProgress" role="status"></p>
+      <button type="button" id="radioRetry" hidden>Повторить сохранение</button>
+    </section>
     <section class="card visualizer-settings" id="visualizerSettings" aria-labelledby="visualizerHeading">
       <div class="visualizer-heading">
         <h2 id="visualizerHeading">Цветомузыка</h2>
@@ -85,6 +129,19 @@
         </div>
         <div class="visualizer-label">Визуализация <span class="hint">предпросмотр</span></div>
         <div class="visualizer-styles" id="visualizerStyles" role="group" aria-label="Вид визуализации" data-visualizer-group></div>
+        <section class="visualizer-custom" aria-labelledby="visualizerCustomHeading">
+          <div class="section-heading"><h3 id="visualizerCustomHeading">Настройка: <span id="visualizerCustomName">Неоновые волны</span></h3><button type="button" id="visualizerReset">Сбросить этот вид</button></div>
+          <p class="hint">Каждый вид хранит свои настройки. Они применяются к фону Astra и обоим виджетам.</p>
+          <canvas id="visualizerPreview" aria-label="Предпросмотр выбранной визуализации на примерном звуке" role="img"></canvas>
+          <div class="visualizer-mode" role="group" aria-label="Палитра" data-visualizer-group>
+            <button type="button" data-visualizer-palette="original" aria-pressed="true">Исходные цвета</button>
+            <button type="button" data-visualizer-palette="single" aria-pressed="false">Один цвет</button>
+            <button type="button" data-visualizer-palette="gradient" aria-pressed="false">Два цвета</button>
+          </div>
+          <div class="visualizer-colors"><label>Основной цвет <input type="color" id="visualizerColor1" value="#38d9ef"></label><label>Второй цвет <input type="color" id="visualizerColor2" value="#d857ff"></label></div>
+          <div id="visualizerCustomControls" class="visualizer-custom-controls"></div>
+          <p class="hint">Размытие 0 — чёткие линии. Толщина меняет линии и элементы; плотность — количество деталей. Движение следует звуку; здесь используется пример для предпросмотра.</p>
+        </section>
         <div class="visualizer-intensity">
           <label for="visualizerIntensity">Интенсивность</label>
           <input id="visualizerIntensity" type="range" min="0.2" max="1" step="0.05" value="0.65">
@@ -123,6 +180,7 @@
       </div>
     </details>
 
+    </div>
     <div id="linkBox" class="card link" hidden>
       <p class="hint">Ссылка не открылась сама — скопируйте её:</p>
       <input id="linkValue" type="text" readonly>
@@ -131,9 +189,12 @@
 
   <footer id="message" class="bar message" role="status"></footer>
 </main>
-<script src="script.js"></script>
-<script src="audio-spectrum.js"></script>
-<script src="visualizer-settings.js"></script>
+<script src="spotify-jobs.js"></script>
+<script src="music-settings.js?v=3"></script>
+<script src="script.js?spotify=4"></script>
+<script src="audio-spectrum.js?v=2"></script>
+<script src="visualizer-settings.js?v=2"></script>
 <script src="desktop-settings.js"></script>
+<script src="spotify-settings.js?v=5"></script>
 </body>
 </html>

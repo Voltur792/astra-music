@@ -1,7 +1,4 @@
-"""Independent Discord queue and a capability-scoped, loopback media proxy.
-
-Never starts the desktop player, changes its selection, or exposes account keys.
-"""
+"""Independent VK/Yandex queue and an exclusive shared Spotify audio route."""
 import asyncio
 import logging
 import re
@@ -10,6 +7,8 @@ import time
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+
+from .radio_presenter import queue_next
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +28,8 @@ class DiscordSource:
         self.track = {}
         self.last_used = time.monotonic()
         self.cancelled = set()
+        self.spotify = False
+        self.capture = None
 
     @staticmethod
     def valid_url(url):
@@ -51,6 +52,9 @@ class DiscordSource:
                 self.session = session
                 self.last_used = time.monotonic()
             try:
+                if service == "spotify":
+                    return await self._play_spotify(session, track_id, mode, playlist_id)
+                self.spotify = False
                 tracks, radio, batch = await asyncio.to_thread(
                     self._prepare, service, track_id, title, artist, extra, mode, playlist_id)
                 with self.lock:
@@ -61,6 +65,33 @@ class DiscordSource:
             except Exception:
                 self.stop(session)
                 return {"error": "Не удалось подготовить музыку. Проверьте подключение сервиса в Astra Music."}
+
+    async def _play_spotify(self, session, track_id, mode, playlist_id):
+        player = self.plugin._spotify
+        if not player.hidden:
+            return {"error": "Включите режим Spotify без окна браузера в Astra Music."}
+        if mode == "wave":
+            result = await asyncio.to_thread(player.personal_mix)
+        elif mode == "playlist":
+            result = await asyncio.to_thread(player.playlist, playlist_id)
+        elif track_id:
+            result = await asyncio.to_thread(player.start, "https://open.spotify.com/track/" + track_id)
+        else:
+            if not player.active:
+                return {"error": "Сначала включите Spotify в Astra Music."}
+            result = await asyncio.to_thread(player.control, "play")
+        if result.get("error"):
+            return result
+        if result.get("playing") is False:
+            return {"error": result.get("message") or "Spotify не подтвердил воспроизведение выбранной музыки."}
+        with self.lock:
+            if self.session != session:
+                return {"cancelled": True}
+            self.spotify = True
+            self.revision += 1
+            self.assets = {"0": "spotify-tab"}
+            self.queue, self.index, self.radio = [], -1, False
+        return await self.current(session)
 
     def _prepare(self, service, track_id, title, artist, extra, mode, playlist_id):
         if service not in {"yandex", "vk"}:
@@ -136,14 +167,34 @@ class DiscordSource:
             self.assets = {"0": url}
         return await self.current(session)
 
-    async def current(self, session=""):
+    async def current(self, session="", want_next=False):
         with self.lock:
             if session != self.session or not self.assets:
                 return {"status": "stopped"}
             self.last_used = time.monotonic()
-            result = {**self.track, "bridge_version": 5, "revision": self.revision, "queue_count": len(self.queue),
+            result = {**self.track, "bridge_version": 6, "revision": self.revision, "queue_count": len(self.queue),
                       "queue_index": self.index, "status": "ready"}
             revision = self.revision
+            spotify = self.spotify
+            if want_next is True and not spotify:
+                result["next_track"] = queue_next(self.queue, self.index, self.track)
+            if self.spotify:
+                state = self.plugin._spotify.snapshot()
+                if not state.get("active") or not state.get("hidden") or not state.get("running"):
+                    return {"status": "stopped"}
+                result.update(service="spotify", track_id=state.get("track_id", ""), title=state.get("title", ""),
+                    artist=state.get("artist", ""), codec="pcm_s16le", shared_player=True,
+                    spotify_status=state.get("status", "ready"),
+                    position_seconds=state.get("position_seconds", 0), duration_seconds=state.get("duration_seconds", 0),
+                    queue_count=0, queue_index=-1)
+        if want_next is True and spotify:
+            result["next_track"] = await asyncio.to_thread(self.plugin._spotify.peek_next)
+            state = self.plugin._spotify.snapshot()
+            if state.get("track_id", "") != result["track_id"] or state.get("title", "") != result["title"]:
+                result["next_track"] = None
+        with self.lock:
+            if session != self.session or revision != self.revision:
+                return {"status": "stopped"}
         base = await asyncio.to_thread(self.plugin._audio_host.ensure_server)
         result["stream_url"] = f"{base}/discord-stream/{revision}/0"
         return result
@@ -155,6 +206,9 @@ class DiscordSource:
                 if session != self.session or revision != self.revision or not self.assets:
                     return {"cancelled": True}
                 self.last_used = time.monotonic()
+                spotify = self.spotify
+            if spotify:
+                return await self.current(session)
             try:
                 return await self._activate(session, feedback=False)
             except Exception:
@@ -166,6 +220,20 @@ class DiscordSource:
             with self.lock:
                 if session != self.session or revision != self.revision or not self.assets:
                     return {"cancelled": True}
+                spotify = self.spotify
+            if spotify:
+                try:
+                    def control():
+                        with self.lock:
+                            if session != self.session or revision != self.revision:
+                                return
+                        self.plugin._spotify.control("next" if int(direction)>=0 else "previous")
+                    if not finished:
+                        await asyncio.to_thread(control)
+                    return await self.current(session)
+                except Exception:
+                    return {"error": "Spotify не смог переключить песню."}
+            with self.lock:
                 self.index += 1 if int(direction) >= 0 else -1
                 self.index = max(0, self.index)
                 exhausted, radio = self.index >= len(self.queue), self.radio
@@ -215,12 +283,22 @@ class DiscordSource:
                 return {"error": "Не удалось поставить лайк. Проверьте вход в Яндекс Музыку."}
 
     def stop(self, session):
+        capture = None
         with self.lock:
             if len(self.cancelled) >= 1024:
                 self.cancelled.clear()
             self.cancelled.add(session)
             if session == self.session:
+                if self.spotify:
+                    try:
+                        self.plugin._spotify.request("pause")
+                    except RuntimeError:
+                        pass
                 self.session, self.assets, self.queue, self.track = "", {}, [], {}
+                self.spotify = False
+                capture, self.capture = self.capture, None
+        if capture:
+            capture.close()
         return {"ok": True}
 
     def _asset(self, revision, asset):
@@ -249,6 +327,10 @@ class DiscordSource:
 
     def serve(self, handler, revision, asset):
         """Rewrite all HLS URLs to this authenticated server, including AES keys."""
+        with self.lock:
+            spotify = self.spotify
+        if spotify:
+            return self._serve_spotify(handler, revision, asset)
         sent = False
         handler._discord_headers_sent = False
         try:
@@ -308,6 +390,51 @@ class DiscordSource:
             if not sent and not getattr(handler, "_discord_headers_sent", False):
                 handler.send_error(502)
             handler.close_connection = True
+
+    def _serve_spotify(self, handler, revision, asset):
+        from .spotify_audio import start_capture, stop_capture
+        process = None
+        sent = False
+        try:
+            with self.lock:
+                if revision != self.revision or asset != "0" or not self.session or not self.spotify:
+                    handler.send_error(404)
+                    return
+                session = self.session
+            process = start_capture(self.plugin)
+            with self.lock:
+                if self.session != session or self.revision != revision or not self.spotify:
+                    return
+                self.capture = process
+            handler.send_response(200)
+            handler.send_header("Content-Type", "application/octet-stream")
+            handler.send_header("Connection", "close")
+            handler.send_header("Cache-Control", "no-store")
+            handler.end_headers()
+            sent = True
+            while not process.closed.is_set():
+                with self.lock:
+                    if self.session != session or self.revision != revision or not self.spotify or time.monotonic()-self.last_used>120:
+                        break
+                if not self.plugin._spotify.active or not self.plugin._spotify.hidden:
+                    break
+                data = process.read()
+                if not data:
+                    break
+                handler.wfile.write(data)
+                handler.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception:
+            if not sent:
+                handler.send_error(502)
+        finally:
+            handler.close_connection = True
+            if process:
+                with self.lock:
+                    if self.capture is process:
+                        self.capture = None
+                stop_capture(process)
 
     def _serve_file(self, handler, client, url, response, revision, asset, requested):
         """Join bounded CDN ranges into the requested range without buffering a song."""

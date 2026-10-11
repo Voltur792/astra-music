@@ -32,14 +32,14 @@ function render() {
   $("play").disabled = !selected; $("stop").disabled = !selected;
   $("play").querySelector(".glyph").textContent = playing ? "Ⅱ" : "▶";
   $("play").setAttribute("aria-label", playing ? "Пауза" : "Воспроизвести");
-  $("previous").disabled = !selected || Number(state.queue_index) <= 0;
-  $("next").disabled = !selected || (state.source !== "radio" && Number(state.queue_index) >= Number(state.queue_count) - 1);
-  $("like").disabled = !selected || state.service === "vk" || state.liked;
+  $("previous").disabled = !selected || (state.service === "spotify" ? !state.can_previous : Number(state.queue_index) <= 0);
+  $("next").disabled = !selected || (state.service === "spotify" ? !state.can_next : state.source !== "radio" && Number(state.queue_index) >= Number(state.queue_count) - 1);
+  $("like").disabled = !selected || ["vk", "spotify"].includes(state.service) || state.liked;
   $("like").querySelector(".glyph").textContent = state.liked ? "♥" : "♡";
   $("like").classList.toggle("liked", Boolean(state.liked));
   if (!draggingVolume) $("volume").value = Math.round(Number(state.volume ?? .8) * 10);
   $("volumeValue").value = $("volume").value;
-  $("seek").disabled = !selected || !state.duration_seconds;
+  $("seek").disabled = !selected || !state.duration_seconds || (state.service === "spotify" && !state.can_seek);
   $("seek").max = Math.max(1, Number(state.duration_seconds) || 1);
   if (!draggingSeek) $("seek").value = state.position_seconds || 0;
   $("elapsed").textContent = time(state.position_seconds); $("duration").textContent = time(state.duration_seconds);
@@ -51,7 +51,7 @@ function render() {
   }
   else if (state.status === "blocked") notice("Не удалось запустить постоянный плеер", true);
   else if (["play_requested", "attempting"].includes(state.status)) notice("Запускаю воспроизведение…");
-  else notice("");
+  else notice(state.service === "spotify" ? state.playback_message || "" : "");
 }
 async function sync() {
   if (pending || !window.astra?.callBackend) return;

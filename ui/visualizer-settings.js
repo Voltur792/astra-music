@@ -2,8 +2,8 @@
   "use strict";
   const panel = document.getElementById("visualizerSettings");
   if (!panel) return;
-  const styles = [["spectrum", "Спектр"], ["waves", "Неоновые волны"], ["liquid", "Жидкий свет"], ["ripple", "Круги на воде"], ["ribbon", "Цветные ленты"], ["orbit", "Орбита"], ["particles", "Частицы"], ["mesh", "Неоновая сетка"], ["binary", "Цифровые волны"], ["terrain", "Золотой ландшафт"], ["silk", "Цветной шёлк"], ["splash", "Всплеск"], ["rain", "Радужный дождь"], ["contour", "Слои цвета"]];
-  const defaults = { mode: "music", widget: true, background: false, style: "waves", intensity: .65 };
+  const styles = window.MusicSpectrum.STYLES;
+  const defaults = { mode: "music", widget: true, background: false, style: "waves", intensity: .65, customizations: {} };
   let settings = { ...defaults }, loaded = false, saving = false, dirty = false, saveTimer;
   const status = document.getElementById("visualizerSaveStatus");
   const widget = document.getElementById("visualizerWidget");
@@ -12,19 +12,47 @@
   const output = document.getElementById("visualizerIntensityValue");
   const styleGroup = document.getElementById("visualizerStyles");
   const previews = [];
+  const selectedPreview = new window.MusicSpectrum(document.getElementById("visualizerPreview"));
+  const ranges = [["scale", "Масштаб"], ["width", "Ширина"], ["height", "Высота"], ["brightness", "Яркость"], ["thickness", "Толщина"], ["blur", "Мягкость"], ["speed", "Скорость"], ["density", "Плотность"]];
+  function current() { return window.MusicSpectrum.customize(settings.customizations?.[settings.style]); }
+  function changeCustom(key, value) {
+    settings.customizations = { ...settings.customizations, [settings.style]: { ...current(), [key]: value } };
+    change("customizations", settings.customizations);
+  }
+  ranges.forEach(([key, labelText]) => {
+    const row = document.createElement("div"); row.className = "visualizer-intensity";
+    const label = document.createElement("label"); label.htmlFor = "visualizerCustom_" + key; label.textContent = labelText;
+    const input = document.createElement("input"); input.type = "range"; input.id = label.htmlFor; input.dataset.custom = key;
+    const [min, max] = window.MusicSpectrum.RANGES[key]; input.min = min; input.max = max; input.step = key === "blur" ? .25 : .05;
+    const value = document.createElement("output"); value.htmlFor = input.id; value.id = input.id + "Value";
+    row.append(label, input, value); document.getElementById("visualizerCustomControls").append(row);
+    input.addEventListener("input", () => changeCustom(key, Number(input.value)));
+  });
   function report(text, error = false) { status.textContent = text; status.classList.toggle("bad", error); }
   function render() {
     panel.querySelectorAll("[data-visualizer-mode]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.visualizerMode === settings.mode)));
     styleGroup.querySelectorAll("[data-visualizer-style]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.visualizerStyle === settings.style)));
     widget.checked = settings.widget; background.checked = settings.background;
     intensity.value = settings.intensity; output.value = Math.round(settings.intensity * 100) + "%";
-    previews.forEach(preview => preview.renderer.setOptions({ style: preview.style, intensity: settings.intensity }));
+    previews.forEach(preview => preview.renderer.setOptions({ ...settings, style: preview.style }));
+    selectedPreview.setOptions(settings);
+    const custom = current();
+    document.getElementById("visualizerCustomName").textContent = styles.find(([id]) => id === settings.style)?.[1] || "";
+    panel.querySelectorAll("[data-visualizer-palette]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.visualizerPalette === custom.palette)));
+    for (const [index, key] of [[1, "color1"], [2, "color2"]]) {
+      const input = document.getElementById("visualizerColor" + index); input.value = custom[key];
+      input.disabled = custom.palette === "original" || (index === 2 && custom.palette !== "gradient");
+    }
+    ranges.forEach(([key]) => {
+      const input = document.getElementById("visualizerCustom_" + key); input.value = custom[key];
+      document.getElementById(input.id + "Value").value = key === "blur" ? custom[key] === 0 ? "Чётко" : Math.round(custom[key] / 8 * 100) + "%" : Math.round(custom[key] * 100) + "%";
+    });
   }
   function parse(value) { return typeof value === "string" ? JSON.parse(value) : value; }
   async function save() {
     if (!loaded || saving || !dirty) return;
     saving = true; dirty = false;
-    const snapshot = { ...settings };
+    const snapshot = JSON.parse(JSON.stringify(settings));
     report("Сохранение…");
     try {
       const result = parse(await window.astra.callBackend("music_visualizer_set", { settings: snapshot }));
@@ -37,12 +65,17 @@
   }
   function change(key, value) {
     settings[key] = value; dirty = true; render();
-    clearTimeout(saveTimer); saveTimer = setTimeout(save, key === "intensity" ? 180 : 0);
+    clearTimeout(saveTimer); saveTimer = setTimeout(save, ["intensity", "customizations"].includes(key) ? 180 : 0);
   }
   panel.querySelectorAll("[data-visualizer-mode]").forEach(button => button.addEventListener("click", () => change("mode", button.dataset.visualizerMode)));
   widget.addEventListener("change", () => change("widget", widget.checked));
   background.addEventListener("change", () => change("background", background.checked));
   intensity.addEventListener("input", () => change("intensity", Number(intensity.value)));
+  panel.querySelectorAll("[data-visualizer-palette]").forEach(button => button.addEventListener("click", () => changeCustom("palette", button.dataset.visualizerPalette)));
+  for (const [index, key] of [[1, "color1"], [2, "color2"]]) document.getElementById("visualizerColor" + index).addEventListener("input", event => changeCustom(key, event.target.value));
+  document.getElementById("visualizerReset").addEventListener("click", () => {
+    const customizations = { ...settings.customizations }; delete customizations[settings.style]; change("customizations", customizations);
+  });
   status.addEventListener("click", () => { if (!loaded) initialize(); else save(); });
   styles.forEach(([id, label]) => {
     const button = document.createElement("button"); button.type = "button"; button.className = "visualizer-style";
@@ -70,7 +103,12 @@
       if (rect.bottom > 0 && rect.top < innerHeight) {
         // Synthetic samples are restricted to these labelled settings previews.
         const bands = Array.from({ length: 48 }, (_, i) => .12 + Math.pow((1 + Math.sin(i * .32 + (media.matches ? 1 : now * .001))) / 2, 3) * .7);
-        previews.forEach(item => { item.renderer.sample(bands); item.renderer.draw(now); });
+        previews.forEach(item => {
+          const bounds = item.renderer.canvas.getBoundingClientRect();
+          if (bounds.bottom > 0 && bounds.top < innerHeight) { item.renderer.sample(bands); item.renderer.draw(now); }
+        });
+        const selectedBounds = selectedPreview.canvas.getBoundingClientRect();
+        if (selectedBounds.bottom > 0 && selectedBounds.top < innerHeight) { selectedPreview.sample(bands); selectedPreview.draw(now); }
       }
       lastPreview = now;
     }
@@ -88,6 +126,7 @@
       const result = parse(await window.astra.callBackend("music_visualizer_get", {}));
       if (!result || result.error) throw new Error("Settings unavailable");
       settings = { ...defaults, ...result };
+      settings.customizations = result.customizations && typeof result.customizations === "object" ? result.customizations : {};
       if (!["off", "all", "music"].includes(settings.mode)) settings.mode = defaults.mode;
       if (!styles.some(([id]) => id === settings.style)) settings.style = defaults.style;
       settings.widget = settings.widget !== false; settings.background = settings.background === true;
