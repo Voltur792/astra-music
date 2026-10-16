@@ -1,4 +1,66 @@
-const audio = document.querySelector("#audio");
+let audio = document.querySelector("#audio");
+const audioListeners = [];
+function onAudio(event, callback) {
+  audioListeners.push([event, callback]);
+  audio.addEventListener(event, callback);
+}
+let preparedAudio = null;
+let preparingNext = false;
+let lastPrepareAt = 0;
+
+function discardPrepared() {
+  if (!preparedAudio) return;
+  preparedAudio.hls?.destroy();
+  preparedAudio.audio.pause();
+  preparedAudio.audio.removeAttribute("src");
+  preparedAudio.audio.load();
+  preparedAudio = null;
+}
+
+async function prepareNextAudio() {
+  if (preparingNext || !current || audio.paused || !Number.isFinite(audio.duration)
+      || audio.duration - audio.currentTime > 25 || Date.now() - lastPrepareAt < 5000) return;
+  if (preparedAudio?.revision === current.revision && preparedAudio.expires_at * 1000 > Date.now() + 4000) return;
+  preparingNext = true; lastPrepareAt = Date.now();
+  const revision = current.revision;
+  try {
+    const spec = parse(await call("music_playback_prepare_next", {revision}));
+    if (!spec.url || current?.revision !== revision) return;
+    discardPrepared();
+    const next = document.createElement("audio");
+    next.preload = "auto";
+    const entry = {...spec, audio:next, hls:null};
+    preparedAudio = entry;
+    if (/\.m3u8(?:[?#]|$)/i.test(spec.url) && window.Hls && Hls.isSupported()) {
+      entry.hls = new Hls({maxBufferLength:12, maxMaxBufferLength:16});
+      entry.hls.on(Hls.Events.MEDIA_ATTACHED, () => entry.hls.loadSource(spec.url));
+      entry.hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data?.fatal && preparedAudio === entry) discardPrepared();
+        else if (data?.fatal && hls === entry.hls) {
+          destroyHls(); setNotice("Не удалось загрузить аудиопоток", true);
+          void report("failed", String(data.details || "HlsError").slice(0,80));
+        }
+      });
+      entry.hls.attachMedia(next);
+    } else { next.src = spec.url; next.load(); }
+  } catch (_) { /* Next track still loads normally if preparation fails. */ }
+  finally { preparingNext = false; }
+}
+
+function adoptPrepared(state, previousRevision) {
+  const entry = preparedAudio;
+  if (!entry || entry.revision !== previousRevision || entry.track_id !== state.track_id
+      || entry.service !== state.service || entry.queue_index !== state.queue_index
+      || entry.expires_at * 1000 <= Date.now() || entry.audio.readyState < 2) {
+    discardPrepared(); return false;
+  }
+  releaseAudioMeter(); destroyHls();
+  for (const [event, callback] of audioListeners) audio.removeEventListener(event, callback);
+  audio.pause(); audio.removeAttribute("src"); audio.load();
+  audio = entry.audio; hls = entry.hls; preparedAudio = null;
+  for (const [event, callback] of audioListeners) audio.addEventListener(event, callback);
+  return true;
+}
 const player = document.querySelector(".player");
 const title = document.querySelector("#title");
 const artist = document.querySelector("#artist");
@@ -25,6 +87,7 @@ let audioSourceReady = Promise.resolve(true);
 let lastRevision = -1;
 let lastCommandRevision = -1;
 let busy = false;
+let syncAgain = false;
 let lastBackendRestoreAt = 0;
 let backendRestoreError = "";
 let lastProgressReportAt = 0;
@@ -319,6 +382,7 @@ function loadAudioSource(url) {
 }
 
 function clearAudioSource() {
+  discardPrepared();
   releaseAudioMeter();
   destroyHls();
   audio.pause();
@@ -416,7 +480,7 @@ async function control(action, value = 0, extras = {}) {
 }
 
 async function sync() {
-  if (busy) return;
+  if (busy) { syncAgain = true; return; }
   if (!bridge()) {
     setPlayerVisible(false);
     setVisualPlaying(false);
@@ -484,10 +548,11 @@ async function sync() {
 
     const changedTrack = Number(state.revision) !== lastRevision;
     if (changedTrack) {
+      const adopted = adoptPrepared(state, lastRevision);
       current = { ...state, url: playableUrl };
       lastRevision = Number(state.revision);
       lastCommandRevision = Number(state.command_revision ?? -1);
-      audioSourceReady = loadAudioSource(current.url).catch((error) => {
+      audioSourceReady = (adopted ? Promise.resolve(true) : loadAudioSource(current.url)).catch((error) => {
         setNotice(error?.message || "Не удалось загрузить аудиопоток", true);
         void report("failed", error?.name || "HlsError");
         return false;
@@ -530,6 +595,7 @@ async function sync() {
     stopButton.disabled = true;
   } finally {
     busy = false;
+    if (syncAgain) { syncAgain = false; void sync(); }
   }
 }
 
@@ -576,12 +642,12 @@ volumeSlider.addEventListener("change", () => {
   void control("volume", Number(volumeSlider.value));
 });
 
-audio.addEventListener("loadedmetadata", () => {
+onAudio("loadedmetadata", () => {
   if (pendingSeek !== null) applySeek(pendingSeek);
   updateProgress();
 });
-audio.addEventListener("timeupdate", updateProgress);
-audio.addEventListener("playing", () => {
+onAudio("timeupdate", updateProgress);
+onAudio("playing", () => {
   ensureLocalAudioMeter();
   setPlayerVisible(true);
   setVisualPlaying(true);
@@ -590,14 +656,14 @@ audio.addEventListener("playing", () => {
   setNotice("");
   void report("playing");
 });
-audio.addEventListener("pause", () => {
+onAudio("pause", () => {
   setVisualPlaying(false);
   if (current && !audio.ended) {
     playGlyph.textContent = "▶";
     playButton.setAttribute("aria-label", "Воспроизвести");
   }
 });
-audio.addEventListener("ended", () => {
+onAudio("ended", () => {
   setVisualPlaying(false);
   playGlyph.textContent = "▶";
   playButton.setAttribute("aria-label", "Воспроизвести");
@@ -608,7 +674,7 @@ audio.addEventListener("ended", () => {
     void report("paused");
   }
 });
-audio.addEventListener("error", () => {
+onAudio("error", () => {
   setVisualPlaying(false);
   void report("failed", audio.error?.code ? "MediaError" + audio.error.code : "MediaError");
   setNotice("Не удалось загрузить поток", true);
@@ -623,14 +689,17 @@ setInterval(() => {
 }, 250);
 const visualSettingsTimer = setInterval(syncVisualSettings, 750);
 const audioMeterTimer = setInterval(sampleLocalAudio, 40);
+const preloadTimer = setInterval(prepareNextAudio, 1000);
 window.MUSIC_PLAYER_READY = true;
 void syncVisualSettings();
 setInterval(sync, 600);
 sync();
 window.addEventListener("beforeunload", () => {
+  discardPrepared();
   if (visualFrameId) cancelAnimationFrame(visualFrameId);
   clearInterval(visualSettingsTimer);
   clearInterval(audioMeterTimer);
+  clearInterval(preloadTimer);
   audioBandsUnsubscribe?.();
   releaseAudioMeter();
 });

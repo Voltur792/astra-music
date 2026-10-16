@@ -370,6 +370,12 @@ def main() -> int:
         return 1
 
     completed = threading.Event()
+    if os.name == "nt":
+        import ctypes
+        app_id = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+        app_id.argtypes = [ctypes.c_wchar_p]
+        app_id.restype = ctypes.c_long
+        app_id("Voltur.AstraMusic.Login")
     result_box: dict[str, object] = {}
     window = webview.create_window(
         "Вход в VK — Astra Music",
@@ -497,6 +503,7 @@ def main() -> int:
         profile_dir = data_dir / "vk-browser-profile"
         profile_dir.mkdir(parents=True, exist_ok=True)
         webview.start(
+            icon=str(Path(__file__).resolve().parent.parent / "ui" / "desktop-widget.ico"),
             debug=False,
             private_mode=False,
             storage_path=str(profile_dir),

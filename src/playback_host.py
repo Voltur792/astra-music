@@ -1,5 +1,6 @@
 """A private persistent audio window, independent of Astra's page/widget lifetime."""
 import asyncio
+import hashlib
 import json
 import os
 import secrets
@@ -86,7 +87,12 @@ class PlaybackHost:
                     if name.startswith("stream/"):
                         state = asyncio.run(host.plugin.ui_playback_state())
                         expected = f"stream/{state.get('revision')}"
-                        if name != expected or state.get("service") != "yandex" or not state.get("url"):
+                        if name != expected:
+                            candidates = [state, host.plugin._prepared_next]
+                            state = next((item for item in candidates if item.get("service") == "yandex" and item.get("url")
+                                and name == "stream/" + hashlib.sha256(item["url"].encode()).hexdigest()
+                                and (item is candidates[0] or item.get("expires_at", 0) > time.time())), {})
+                        if state.get("service") != "yandex" or not state.get("url"):
                             self.send_error(404); return
                         headers = {"Accept-Encoding": "identity"}
                         requested_range = self.headers.get("Range", "")
@@ -116,10 +122,10 @@ class PlaybackHost:
                         data, mime = b"ok", "text/plain"
                     else:
                         path = (host.ui / name).resolve()
-                        if not path.is_relative_to(host.ui.resolve()) or not path.is_file() or path.suffix not in {".html", ".js", ".css"}:
+                        if not path.is_relative_to(host.ui.resolve()) or not path.is_file() or path.suffix not in {".html", ".js", ".css", ".png"}:
                             self.send_error(404); return
                         data = path.read_bytes()
-                        mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}[path.suffix]
+                        mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png"}[path.suffix]
                         if name in {"index.html", "player-remote.html", "player-v12.html", "desktop-widget.html"}:
                             data = data.replace(b'<script src="http://astra-plugin.localhost/bridge/astra-bridge.js"></script>', b'<script src="native-bridge.js"></script>')
                             data = data.replace(b'preload="none"', b'preload="auto"')
@@ -154,6 +160,7 @@ class PlaybackHost:
                         "music_playback_control": host.plugin.ui_playback_control,
                         "music_playback_stop": host.plugin.ui_playback_stop,
                         "music_playback_report": host.plugin.ui_playback_report,
+                        "music_playback_prepare_next": host.plugin.ui_playback_prepare_next,
                         "music_visualizer_get": host.plugin.ui_visualizer_get,
                         "music_visualizer_sample": host.plugin.ui_visualizer_sample,
                     }
@@ -168,11 +175,12 @@ class PlaybackHost:
                             if method is None:
                                 self.send_error(404); return
                             result = asyncio.run(method(**(request.get("params") or {})))
-                        if request.get("method") == "music_playback_state" and result.get("service") == "yandex" and result.get("url"):
+                        if request.get("method") in {"music_playback_state", "music_playback_prepare_next"} and result.get("service") == "yandex" and result.get("url"):
                             # A same-origin stream allows captureStream() to
                             # measure Yandex audio instead of returning silence.
                             result = dict(result)
-                            result["url"] = f"http://127.0.0.1:{host.server.server_port}/{host.token}/stream/{result['revision']}"
+                            stream_key = hashlib.sha256(result["url"].encode()).hexdigest()
+                            result["url"] = f"http://127.0.0.1:{host.server.server_port}/{host.token}/stream/{stream_key}"
                             if "stream_url" in result:
                                 result["stream_url"] = result["url"]
                         data = json.dumps(result, ensure_ascii=False).encode()

@@ -257,6 +257,13 @@
     head.className = "head";
     const title = document.createElement("strong");
     title.textContent = service.label;
+    const accountIcon = document.createElement("img");
+    accountIcon.src = "app-icon.png";
+    accountIcon.alt = "";
+    accountIcon.width = 24;
+    accountIcon.height = 24;
+    accountIcon.style.cssText = "vertical-align:middle;margin-right:8px";
+    title.prepend(accountIcon);
     const badge = document.createElement("span");
     badge.className = "pill";
     badge.textContent = "проверка…";

@@ -14,9 +14,9 @@ from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 SCALE = 4
-SIZE = 256
+SIZE = 128
 SIDE = SIZE * SCALE
-PNG_MAX_BYTES = 128 * 1024
+PNG_MAX_BYTES = 8192
 
 
 def lerp(a: int, b: int, t: float) -> int:
@@ -40,37 +40,16 @@ def make_icon() -> Image.Image:
     canvas = gradient(s, (23, 27, 74), (92, 34, 153))
     canvas.putalpha(mask)
 
-    # Soft cyan and magenta light keeps the central mark lively at small sizes.
-    halo = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    hd = ImageDraw.Draw(halo)
-    hd.ellipse((65, 268, 610, 815), fill=(199, 54, 255, 145))
-    hd.ellipse((401, 93, 940, 634), fill=(34, 226, 222, 125))
-    halo = halo.filter(ImageFilter.GaussianBlur(104))
-    halo.putalpha(Image.composite(halo.getchannel("A"), Image.new("L", (s, s), 0), mask))
-    canvas.alpha_composite(halo)
-
-    # Three compact spectrum bars hint at responsive playback without crowding the note.
+    # Bold headphones and Astra's four-point star stay legible at 16 px.
     draw = ImageDraw.Draw(canvas)
-    bar_colors = ((83, 232, 230, 230), (156, 113, 255, 230), (245, 137, 235, 230))
-    for x, top, color in ((724, 454, bar_colors[0]), (794, 350, bar_colors[1]), (864, 414, bar_colors[2])):
-        draw.rounded_rectangle((x, top, x + 30, 700), radius=15, fill=color)
-
-    # A single eighth note, shaped from rounded strokes and oval notehead.
-    note_mask = Image.new("L", (s, s), 0)
-    nd = ImageDraw.Draw(note_mask)
-    nd.line((468, 205, 468, 579), fill=255, width=62)
-    nd.polygon(((454, 208), (744, 143), (744, 218), (526, 270)), fill=255)
-    nd.ellipse((322, 537, 505, 656), fill=255)
-    note_glow = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    note_glow.paste((104, 244, 255, 155), (0, 0, s, s), note_mask.filter(ImageFilter.GaussianBlur(34)))
-    note_glow.putalpha(Image.composite(note_glow.getchannel("A"), Image.new("L", (s, s), 0), mask))
-    canvas.alpha_composite(note_glow)
-    note_fill = gradient(s, (226, 247, 255), (255, 231, 255))
-    note_fill.putalpha(note_mask)
-    canvas.alpha_composite(note_fill)
-
-    draw = ImageDraw.Draw(canvas)
-    draw.rounded_rectangle((8, 8, s - 8, s - 8), radius=178, outline=(225, 208, 255, 130), width=4)
+    k = s / 1024
+    def box(values): return tuple(round(v*k) for v in values)
+    draw.arc(box((215, 210, 810, 850)), 180, 360, fill=(245, 241, 255), width=round(65*k))
+    draw.rounded_rectangle(box((195, 490, 330, 785)), radius=round(52*k), fill=(245, 241, 255))
+    draw.rounded_rectangle(box((695, 490, 830, 785)), radius=round(52*k), fill=(245, 241, 255))
+    draw.polygon([tuple(round(v*k) for v in point) for point in
+                  ((510,390),(550,510),(675,552),(550,594),(510,720),(468,594),(345,552),(468,510))],
+                 fill=(91, 236, 236))
     return canvas.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
 
 
@@ -88,9 +67,10 @@ def svg_data(image: Image.Image, label: str) -> str:
 
 def main() -> None:
     image = make_icon()
-    image.save(ROOT / "icon.png", optimize=True, compress_level=9)
+    image.quantize(colors=128).save(ROOT / "icon.png", optimize=True, compress_level=9)
+    (ROOT / "ui" / "app-icon.png").write_bytes((ROOT / "icon.png").read_bytes())
     image.save(ROOT / "ui" / "desktop-widget.ico", format="ICO",
-               sizes=[(size, size) for size in (16, 20, 24, 32, 48, 64, 128, 256)])
+               sizes=[(size, size) for size in (16, 20, 24, 32, 48, 64, 128)])
     icon_size = (ROOT / "icon.png").stat().st_size
     if icon_size > PNG_MAX_BYTES:
         raise SystemExit(f"icon.png is {icon_size} bytes; maximum is {PNG_MAX_BYTES} bytes")

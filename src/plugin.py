@@ -878,6 +878,9 @@ class AstraMusic(Plugin):
             "connection": {},
         }
         self._vk_stream_cache: dict[str, tuple[str, float]] = {}
+        self._yandex_preload_cache = {}
+        self._prepared_next = {}
+        self._prepare_next_lock = threading.Lock()
         self.clients: dict[str, MusicClient] = {}
         # The persistent native audio process owns the stream; visible iframes
         # only send commands and display this shared state.
@@ -1668,10 +1671,15 @@ class AstraMusic(Plugin):
         return self._deliver(result, service)
 
     def _yandex_stream_sync(self, track_id: str) -> dict[str, Any]:
+        cached = self._yandex_preload_cache.pop(track_id, None)
+        if cached and cached[1] > time.time():
+            return dict(cached[0])
         client = self._client("yandex")
         if not isinstance(client, YandexMusicClient):
             raise MusicError("Клиент Яндекс Музыки недоступен")
-        return client.stream_url(track_id.strip())
+        result = client.stream_url(track_id.strip())
+        self._yandex_preload_cache = {track_id: (dict(result), time.time() + 40)}
+        return result
 
     @staticmethod
     def _playback_track_item(track: Track, batch_id: str = "") -> dict[str, Any]:
@@ -1726,13 +1734,7 @@ class AstraMusic(Plugin):
             ) = previous
             raise
 
-    def _activate_vk_queue_item_sync(
-        self, *, auto_play: bool, position_seconds: float = 0.0
-    ) -> dict[str, Any]:
-        index = self._playback_queue_index
-        if index < 0 or index >= len(self._playback_queue):
-            raise MusicError("В очереди VK нет выбранного трека.")
-        item = self._playback_queue[index]
+    def _resolve_vk_queue_stream(self, item):
         track_id = str(item.get("track_id", ""))
         extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
         owner_id = str(extra.get("owner_id", ""))
@@ -1758,6 +1760,21 @@ class AstraMusic(Plugin):
             if not stream_url:
                 raise MusicError("EasyVK вернул неподдерживаемую ссылку VK HLS-аудиопотока.")
             self._vk_stream_cache[cache_key] = (stream_url, time.time() + 45)
+
+        return {"url": stream_url, "duration_seconds": duration}
+
+    def _activate_vk_queue_item_sync(
+        self, *, auto_play: bool, position_seconds: float = 0.0
+    ) -> dict[str, Any]:
+        index = self._playback_queue_index
+        if index < 0 or index >= len(self._playback_queue):
+            raise MusicError("В очереди VK нет выбранного трека.")
+        item = self._playback_queue[index]
+        track_id = str(item.get("track_id", ""))
+        extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
+        resolved = self._resolve_vk_queue_stream(item)
+        stream_url = resolved["url"]
+        duration = resolved["duration_seconds"]
 
         try:
             self._write_playback_selection(
@@ -3464,6 +3481,47 @@ class AstraMusic(Plugin):
         # avoids a second bridge round-trip from the home iframe.
         return {**self._playback_state, "stream_url": self._playback_state.get("url", ""),
                 "ok": True, "selected": True}
+
+    @ui_call("music_playback_prepare_next")
+    async def ui_playback_prepare_next(self, **params):
+        return await asyncio.to_thread(self._prepare_next_sync, params.get("revision"))
+
+    def _prepare_next_sync(self, revision):
+        # Resolving ahead must never move the queue or disturb audible playback.
+        if not self._prepare_next_lock.acquire(blocking=False):
+            return {}
+        try:
+            with self._playback_lock:
+                state = self._playback_state
+                index = self._playback_queue_index + 1
+                queue = self._playback_queue
+                if (state.get("revision") != revision or state.get("status") != "playing"
+                        or state.get("service") not in {"vk", "yandex"} or not 0 <= index < len(queue)):
+                    return {}
+                item = dict(queue[index])
+                service = state["service"]
+                prepared = self._prepared_next
+                if prepared.get("revision") == revision and prepared.get("expires_at", 0) > time.time():
+                    return dict(prepared)
+            try:
+                result = (self._resolve_vk_queue_stream(item) if service == "vk"
+                          else self._yandex_stream_sync(str(item["track_id"])))
+                if service == "yandex":
+                    parsed = urlsplit(str(result.get("url", "")))
+                    if parsed.scheme != "https" or not any(parsed.hostname == domain or
+                            (parsed.hostname or "").endswith("." + domain) for domain in ("yandex.ru", "yandex.net")):
+                        return {}
+            except Exception:
+                return {}  # Normal track activation remains the fallback.
+            with self._playback_lock:
+                if self._playback_state.get("revision") != revision or self._playback_queue is not queue:
+                    return {}
+                self._prepared_next = {"revision": revision, "service": service,
+                    "track_id": item["track_id"], "queue_index": index,
+                    "url": result.get("url", ""), "expires_at": time.time() + 30}
+                return dict(self._prepared_next)
+        finally:
+            self._prepare_next_lock.release()
 
     @ui_call("music_playback_state")
     async def ui_playback_state(self, **params: Any) -> dict[str, Any]:
