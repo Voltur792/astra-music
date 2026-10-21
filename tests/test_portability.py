@@ -22,6 +22,8 @@ def test_mac_browser_application_bundle(tmp_path, monkeypatch):
     browser = tmp_path / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
     browser.parent.mkdir(parents=True)
     browser.touch()
+    is_file = playback_host.Path.is_file
+    monkeypatch.setattr(playback_host.Path, "is_file", lambda path: path == browser and is_file(path))
     assert playback_host.find_edge_browser() == browser.resolve()
 
 
