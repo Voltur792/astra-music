@@ -700,6 +700,7 @@ def test_new_visualizer_style_survives_settings_roundtrip(style):
     assert AstraMusic()._visualizer_settings["style"] == style
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows installation and registry lookup")
 def test_edge_lookup_works_without_daemon_environment_paths(monkeypatch):
     from src import playback_host
     for key in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA", "SystemDrive"):

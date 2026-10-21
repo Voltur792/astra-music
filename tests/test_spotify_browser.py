@@ -78,6 +78,40 @@ def test_discord_spotify_wave_starts_personal_mix(plugin, monkeypatch):
     assert calls == ["mix"] and source.spotify
 
 
+@pytest.mark.parametrize("mode", ["playlist", "wave"])
+def test_discord_spotify_playlist_and_mix_prepare_a_shared_pcm_stream(plugin, monkeypatch, mode):
+    source, player = plugin._discord_music, plugin._spotify
+    playlist_id = "5KafKeLCCXVTEywG5NhPPq"
+    mix_id = "37i9dQZF1E35gT7J7SjLQL"
+    calls = []
+    player.hidden = True
+    def browse(kind):
+        assert mode == "wave", "A linked playlist must not be looked up in the owner's library"
+        assert kind == "mixes"
+        return {"playlists": [{"playlist_id": mix_id, "title": "Daily Mix 1"}]}
+    monkeypatch.setattr(player, "browse", browse)
+    monkeypatch.setattr(player, "start", lambda url: calls.append(url) or {"playing": True})
+    monkeypatch.setattr(player, "control", lambda *_: pytest.fail("A new playlist/mix must not just resume the current song"))
+    monkeypatch.setattr(player, "snapshot", lambda: {"active": True, "running": True, "hidden": True, "status": "playing", "title": "Song", "artist": "Artist"})
+    monkeypatch.setattr(plugin._audio_host, "ensure_server", lambda: "http://127.0.0.1:12345/" + "b" * 40)
+    result = asyncio.run(source.play("a" * 32, service="spotify", mode=mode, playlist_id=playlist_id if mode == "playlist" else ""))
+    assert calls == ["https://open.spotify.com/playlist/" + (playlist_id if mode == "playlist" else mix_id)]
+    assert result["status"] == "ready" and result["service"] == "spotify"
+    assert result["codec"] == "pcm_s16le" and result["shared_player"] is True
+    assert result["stream_url"].endswith(f"/discord-stream/{source.revision}/0")
+    assert result["title"] == "Song" and source.spotify and source.assets == {"0": "spotify-tab"}
+
+
+@pytest.mark.parametrize("mode", ["playlist", "wave"])
+def test_discord_spotify_requires_confirmed_playback_before_exposing_a_stream(plugin, monkeypatch, mode):
+    source, player = plugin._discord_music, plugin._spotify
+    monkeypatch.setattr(player, "playlist", lambda *_: {"playing": False, "message": "Плейлист недоступен"})
+    monkeypatch.setattr(player, "personal_mix", lambda: {"playing": False, "message": "Микс недоступен"})
+    monkeypatch.setattr(player, "snapshot", lambda: pytest.fail("Failed playback must not expose a Discord stream"))
+    result = asyncio.run(source.play("a" * 32, service="spotify", mode=mode, playlist_id="5KafKeLCCXVTEywG5NhPPq"))
+    assert "недоступен" in result["error"] and not source.spotify and not source.assets
+
+
 @pytest.fixture
 def plugin(tmp_path, monkeypatch):
     monkeypatch.setenv("ASTRA_MUSIC_DATA_DIR", str(tmp_path))

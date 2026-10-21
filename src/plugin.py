@@ -28,6 +28,7 @@ from .system_audio import SystemAudio
 from .desktop_widget import DesktopWidget
 from .spotify_browser import SpotifyBrowser
 from .radio_presenter import RadioPresenter, radio_settings
+from .yandex_playlist import playlist_reference
 
 log = logging.getLogger("astra-music")
 
@@ -389,20 +390,43 @@ class YandexMusicClient(MusicClient):
         return out
 
     def playlist_tracks(self, playlist_id: str, limit: int) -> list[Track]:
-        response = self.http.get(
-            f"{self.base_url}/users/{self.user_path}/playlists/{quote(playlist_id)}"
-        )
+        try:
+            reference, identifier, owner = playlist_reference(playlist_id)
+        except ValueError as exc:
+            raise MusicError(str(exc)) from exc
+        path = (f"/playlist/{identifier}" if reference == "uuid" else
+                f"/users/{quote(owner or self.user_path, safe='')}/playlists/{identifier}")
+        response = self.http.get(f"{self.base_url}{path}")
+        if response.status_code == 404:
+            raise MusicError("Яндекс Музыка: плейлист не найден или недоступен подключённому аккаунту.")
         self._raise(response)
         result = response.json().get("result") or {}
         # Свежий формат — `list` из записей {"track": {...}}; старый — `tracks`
         # со списком треков целиком. Поддерживаем оба, иначе плейлист пуст.
-        entries = result.get("list") or result.get("tracks") or []
-        out: list[Track] = []
+        entries = (result.get("list") or result.get("tracks") or [])[:max(1, min(5000, int(limit)))]
+        # Some playlist responses contain only TrackShort IDs. Fetch their full
+        # metadata in bounded batches, then restore playlist order and duplicates.
+        records = []
         for item in entries:
             track = item.get("track") if isinstance(item, dict) else None
             if not isinstance(track, dict):
                 track = item if isinstance(item, dict) and item.get("id") else None
-            if not track:
+            if track:
+                records.append(track)
+        missing = list(dict.fromkeys(str(track.get("id")) for track in records
+                                    if not track.get("title") and str(track.get("id", "")).isdigit()))
+        resolved = {}
+        for offset in range(0, len(missing), 50):
+            full = self.http.get(f"{self.base_url}/tracks", params={"trackIds": ",".join(missing[offset:offset + 50]), "format": "json"})
+            self._raise(full)
+            for track in full.json().get("result") or []:
+                if isinstance(track, dict) and track.get("id") is not None:
+                    resolved[str(track["id"])] = track
+        out: list[Track] = []
+        for track in records:
+            if not track.get("title"):
+                track = resolved.get(str(track.get("id")), {})
+            if not track or track.get("available") is False:
                 continue
             parsed = self._track(track)
             if parsed:
@@ -835,7 +859,8 @@ def _data_dir() -> Path:
     appdata = os.environ.get("APPDATA")
     if appdata:
         return Path(appdata) / "music-controller"
-    return Path(__file__).resolve().parent.parent / "data"
+    from .platform_support import user_data
+    return user_data() / "music-controller"
 
 
 @ui_page(
@@ -2559,6 +2584,7 @@ class AstraMusic(Plugin):
             project_dir = Path(__file__).resolve().parent.parent
             run_options: dict[str, Any] = {
                 "cwd": project_dir,
+                "env": {**os.environ, "ASTRA_MUSIC_DATA_DIR": str(self.data_dir)},
                 "capture_output": True,
                 "text": True,
                 "encoding": "utf-8",

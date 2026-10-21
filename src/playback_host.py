@@ -21,6 +21,16 @@ log = logging.getLogger("astra-music.audio-host")
 
 def find_edge_browser():
     """Astra's daemon omits ProgramFiles from its child environment."""
+    if sys.platform != "win32":
+        candidates = []
+        if sys.platform == "darwin":
+            for base in (Path("/Applications"), Path.home() / "Applications"):
+                for app in ("Microsoft Edge", "Google Chrome", "Chromium"):
+                    candidates.append(base / f"{app}.app/Contents/MacOS/{app}")
+        for name in ("microsoft-edge", "microsoft-edge-stable", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+            if executable := shutil.which(name):
+                candidates.append(Path(executable))
+        return next((p.resolve() for p in candidates if p.is_file()), None)
     candidates = []
     for base in (os.environ.get("PROGRAMFILES(X86)"), os.environ.get("PROGRAMFILES"),
                  os.environ.get("LOCALAPPDATA")):
@@ -48,7 +58,7 @@ def find_edge_browser():
 class PlaybackHost:
     def __init__(self, plugin):
         self.plugin = plugin
-        self.enabled = sys.platform == "win32" and os.environ.get("ASTRA_MUSIC_NATIVE_PLAYER") != "0"
+        self.enabled = sys.platform in ("win32", "linux", "darwin") and os.environ.get("ASTRA_MUSIC_NATIVE_PLAYER") != "0"
         self.server = None
         self.process = None
         self.lock = threading.Lock()
@@ -282,6 +292,8 @@ def main():
     # The parent resolves the executable before spawning: do not rediscover it
     # using a different or further restricted subprocess environment.
     edge = Path(sys.argv[2]) if len(sys.argv) > 2 else find_edge_browser()
+    if edge and sys.platform != "win32":
+        return run_posix_audio(edge, url, transport)
     if edge:
         import ctypes
         from ctypes import wintypes
@@ -320,6 +332,37 @@ def main():
                 process.wait(timeout=5)
         return
     raise RuntimeError("Для постоянного аудиоплеера требуется Microsoft Edge")
+
+
+def run_posix_audio(browser, url, transport):
+    """A private process group; shutdown never touches the user's other browsers."""
+    import signal
+    import tempfile
+    stopped = threading.Event()
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(signum, lambda *_: stopped.set())
+    with tempfile.TemporaryDirectory(prefix="astra-music-audio-") as profile:
+        process = subprocess.Popen([
+            str(browser), "--headless=new", "--disable-extensions", "--disable-sync", "--no-first-run", "--no-default-browser-check",
+            "--autoplay-policy=no-user-gesture-required", "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
+            "--disable-background-media-suspend", "--user-data-dir=" + profile, url,
+        ], start_new_session=True)
+        try:
+            while process.poll() is None and not stopped.wait(2):
+                try:
+                    transport.open(url.rsplit("/", 1)[0] + "/ping", timeout=3).close()
+                except Exception:
+                    break
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=4)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=4)
 
 
 if __name__ == "__main__":

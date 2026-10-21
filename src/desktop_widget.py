@@ -34,6 +34,9 @@ def normalize_settings(value):
 
 def apply_window_appearance(window, transparency, round_corners=False, size=None):
     """Use the HWND directly; WinForms' live setters can block off its GUI thread."""
+    if sys.platform != "win32":
+        # Native opacity/positioning are compositor-owned on Wayland.
+        return
     import ctypes
     from ctypes import wintypes
     hwnd = int(window.native.Handle.ToInt64())
@@ -121,7 +124,7 @@ class DesktopWidget:
     def __init__(self, plugin):
         self.plugin = plugin
         self.settings = normalize_settings(plugin._read_settings().get("desktop_widget"))
-        self.available = sys.platform == "win32" and plugin._audio_host.enabled
+        self.available = sys.platform in ("win32", "linux", "darwin") and plugin._audio_host.enabled
         self.process = None
         self.session = ""
         self.error = ""
@@ -156,7 +159,7 @@ class DesktopWidget:
     def set(self, settings, reset_position=False):
         with self.lock:
             if settings.get("enabled") and not self.available:
-                return {"error": "Виджет рабочего стола доступен в Windows с постоянным аудиоплеером."}
+                return {"error": "Для виджета нужен постоянный аудиоплеер и установленный pywebview (Qt в Linux)."}
             # Screen coordinates are reported by the window, not the settings form.
             previous_on_top = self.settings["on_top"]
             self._save({key: settings[key] for key in ("enabled", "on_top", "transparency") if key in settings})
@@ -241,6 +244,8 @@ class DesktopWidget:
 
 def main():
     import urllib.request
+    from .platform_support import webview_gui
+    gui = webview_gui()
     import webview
     if sys.platform == "win32":
         import ctypes
@@ -264,8 +269,9 @@ def main():
     x, y = visible_position(options, webview.screens)
     window = webview.create_window("Astra Music", base + "/desktop-widget.html",
                                    width=WIDTH, height=HEIGHT, x=x, y=y,
-                                   resizable=False, frameless=True, easy_drag=False, shadow=False,
-                                   on_top=options["on_top"], background_color=WINDOW_BACKGROUND_COLOR, focus=False)
+                                   resizable=False, frameless=sys.platform == "win32", easy_drag=False, shadow=False,
+                                   on_top=options["on_top"], background_color=WINDOW_BACKGROUND_COLOR,
+                                   focus=sys.platform != "win32", text_select=True)
 
     def on_moved(x, y):
         with position_lock:
@@ -327,6 +333,13 @@ def main():
     def prepare_window():
         apply_window_appearance(window, appearance["transparency"],
                                 round_corners=True, size=(WIDTH, HEIGHT))
+    if sys.platform != "win32":
+        from .platform_support import webview_gui
+        def enable_copy(*_):
+            window.evaluate_js("document.querySelector('.track')?.classList.remove('pywebview-drag-region'); document.querySelector('.track')?.removeAttribute('title');")
+        window.events.loaded += enable_copy
+        webview.start(supervise, gui=gui, private_mode=True)
+        return
     window.events.before_show += prepare_window
     # Reapply after WinForms has shown/resized the form (including DPI changes).
     window.events.shown += refresh_shape

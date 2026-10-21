@@ -377,6 +377,8 @@ def main() -> int:
         app_id.restype = ctypes.c_long
         app_id("Voltur.AstraMusic.Login")
     result_box: dict[str, object] = {}
+    from .platform_support import webview_gui
+    gui = webview_gui()
     window = webview.create_window(
         "Вход в VK — Astra Music",
         AUTH_URL,
@@ -498,11 +500,13 @@ def main() -> int:
     threading.Thread(target=watch_login, name="vk-auth-watch", daemon=True).start()
 
     try:
-        data_dir = Path(os.environ.get("ASTRA_MUSIC_DATA_DIR") or
-                        str(Path(os.environ.get("APPDATA", str(Path.home()))) / "music-controller"))
+        from .platform_support import user_data
+        data_dir = Path(os.environ.get("ASTRA_MUSIC_DATA_DIR") or str(user_data() / "music-controller"))
         profile_dir = data_dir / "vk-browser-profile"
         profile_dir.mkdir(parents=True, exist_ok=True)
+        from .platform_support import webview_gui
         webview.start(
+            gui=gui,
             icon=str(Path(__file__).resolve().parent.parent / "ui" / "desktop-widget.ico"),
             debug=False,
             private_mode=False,
