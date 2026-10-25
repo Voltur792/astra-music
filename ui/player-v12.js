@@ -1,3 +1,4 @@
+if (window.astra && window.astra.widget) document.documentElement.classList.add("host-card");
 let audio = document.querySelector("#audio");
 const audioListeners = [];
 function onAudio(event, callback) {

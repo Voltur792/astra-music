@@ -683,8 +683,10 @@ def test_windows_widget_is_only_a_remote_control():
     plugin = AstraMusic()
     plugin._audio_host.enabled = True
     with Harness(plugin) as h:
-        widget = next(c for c in h.ui_contributions() if c.slot == "home.widgets")
+        widget = next(c for c in h.ui_contributions() if c.slot == "desktop.widget")
         assert widget.url == "player-remote.html"
+        (fmt,) = widget.desktop_widget.formats
+        assert (fmt.id, fmt.url, fmt.default_w, fmt.default_h) == ("card", "player-remote.html", 4, 2)
     root = Path(__file__).resolve().parent.parent
     html = (root / "ui/player-remote.html").read_text(encoding="utf-8-sig")
     script = (root / "ui/player-remote.js").read_text(encoding="utf-8")

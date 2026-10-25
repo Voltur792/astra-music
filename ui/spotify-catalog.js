@@ -16,15 +16,38 @@ function spotifyCatalog(request = {}) {
   if (request.kind === 'playlists') {
     const library = document.querySelector('[data-testid="YourLibrary"],[data-testid="your-library"],[aria-label="Моя медиатека"],[aria-label="Your Library"]');
     if (!library) return {pending:true};
-    const list = new Map();
+    // The sidebar is a virtual list: rows exist only near the viewport, so collect them while scrolling.
+    const store = globalThis.__astraSpotifyLibrary = globalThis.__astraSpotifyLibrary || {seen:{},list:{}};
+    const clean = s => String(s || '').replace(/\s+/g,' ').trim().slice(0,300);
+    const add = (id, title, card) => {
+      if (id && clean(title) && !store.list[id]) store.list[id] = {service:'spotify',playlist_id:id,title:clean(title),url:id === 'liked' ? 'https://open.spotify.com/collection/tracks' : 'https://open.spotify.com/playlist/'+id,cover_url:picture(card)};
+    };
+    for (const p of library.querySelectorAll('[id^="listrow-title-spotify:"]')) {
+      const uri = String(p.id || '').slice('listrow-title-'.length);
+      if (!uri) continue;
+      store.seen[uri] = true;
+      const id = uri.match(/^spotify:playlist:([a-zA-Z0-9]+)$/)?.[1] || (/^spotify:(?:user:[^:]+:)?collection(?::tracks)?$/.test(uri) ? 'liked' : '');
+      add(id, text(p), p.closest('[role="row"]'));
+    }
     for (const a of library.querySelectorAll('a[href*="/playlist/"],a[href="/collection/tracks"]')) {
       const href = a.getAttribute('href'), id = href.match(/^\/playlist\/([a-zA-Z0-9]+)\/?$/)?.[1] || (href === '/collection/tracks' ? 'liked' : '');
-      if (!id) continue;
+      if (id) store.seen[id] = true;
       const card = a.closest('[data-testid="card"],[role="listitem"],li') || a.parentElement;
-      const title = text(a) || a.getAttribute('aria-label') || card?.querySelector('img')?.alt;
-      if (title) list.set(id,{service:'spotify',playlist_id:id,title:title.slice(0,300),url:'https://open.spotify.com'+href,cover_url:picture(card)});
+      add(id, text(a) || a.getAttribute('aria-label') || card?.querySelector('img')?.alt, card);
     }
-    return {ready:true,playlists:[...list.values()].slice(0,100),partial:true};
+    const playlists = Object.values(store.list).slice(0,100), empty = !Object.keys(store.seen).length;
+    // A filter such as "Albums" hides playlists; clearing it only changes the plugin's own Edge profile.
+    const clear = library.parentElement?.closest('nav,aside,section,[id*="Sidebar"]')?.querySelector('[aria-label="Очистить фильтры"],[aria-label="Clear filters"]');
+    const playlistChip = clear && [...clear.closest('[role="listbox"]')?.querySelectorAll('[aria-checked="true"]') || []].some(c=>/^(?:Плейлисты|Playlists)$/i.test(c.getAttribute('aria-label') || text(c)));
+    const clearRect = clear && !playlistChip && !playlists.length ? clear.getBoundingClientRect() : null;
+    if (clearRect?.width && clearRect.height) return {ready:false,empty,playlists,clear_filter:{x:clearRect.left+clearRect.width/2,y:clearRect.top+clearRect.height/2}};
+    let scroller = library;
+    while (scroller && typeof getComputedStyle === 'function' && !(scroller.scrollHeight > scroller.clientHeight + 2 && /auto|scroll|overlay/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
+    if (!empty && scroller?.scrollHeight && scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 2) {
+      scroller.scrollTop += Math.max(100, scroller.clientHeight * .7);
+      return {ready:false,empty,playlists};
+    }
+    return {ready:!empty,empty,playlists,partial:playlists.length >= 100};
   }
   if (request.kind === 'mixes') {
     const mixes = new Map();

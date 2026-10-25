@@ -1,5 +1,6 @@
 // This iframe is disposable: audio belongs to the persistent native host.
 "use strict";
+if (window.astra && window.astra.widget) document.documentElement.classList.add("host-card");
 const $ = id => document.getElementById(id);
 const player = document.querySelector(".player");
 const canvas = document.createElement("canvas");

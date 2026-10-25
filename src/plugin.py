@@ -21,7 +21,7 @@ from urllib.parse import quote, urlsplit
 import httpx
 
 from astra_plugin_sdk import Field, NotConfigured, Plugin, action, tool, ui_call, ui_effect, ui_page
-from astra_plugin_sdk.capability_types import UiContribution
+from astra_plugin_sdk.capability_types import DesktopWidget as HostCardWidget, UiContribution, WidgetFormat
 from .tab_icon import TAB_ICON_SVG
 from .playback_host import PlaybackHost
 from .system_audio import SystemAudio
@@ -3245,16 +3245,17 @@ class AstraMusic(Plugin):
 
     async def get_ui_contributions(self) -> list[UiContribution]:
         contributions = await super().get_ui_contributions()
-        contributions.append(
-            UiContribution(
-                id="music-home-player-v13",
-                slot="home.widgets",
-                url="player-remote.html" if self._audio_host.enabled else "player-v12.html",
-                height=168,
-                transparent=True,
-                props={} if self._audio_host.enabled else {"audio": "true"},
-            )
-        )
+        # Card shell is Astra's (desktop.widget). The legacy home.widgets slot
+        # got a 4x6-cell tile in Astra 0.2.7, leaving an empty backdrop under the
+        # 168 px player. Same id and format id keep already placed cards.
+        player_url = "player-remote.html" if self._audio_host.enabled else "player-v12.html"
+        player = UiContribution.widget("music-home-player-v13", "Музыкальный плеер", HostCardWidget(formats=[
+            WidgetFormat(id="card", label="Плеер", url=player_url,
+                         default_w=4, default_h=2, min_w=3, min_h=2, max_w=8, max_h=3,
+                         min_pixel_width=240, min_pixel_height=150),
+        ]))
+        player.props = {} if self._audio_host.enabled else {"audio": "true"}
+        contributions.append(player)
         for contribution in contributions:
             if contribution.id == "music":
                 contribution.transparent = True

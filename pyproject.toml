@@ -1,10 +1,10 @@
 [project]
 name = "astra_music"
-version = "1.4.1"
+version = "1.4.2"
 description = "Music search and playback for Astra: Yandex Music, VK Music and Spotify."
 requires-python = ">=3.10"
 dependencies = [
-    "astra-plugin-sdk>=0.6,<0.7",
+    "astra-plugin-sdk>=0.6.4,<0.7",
     "grpcio>=1.60.0",
     "protobuf>=4.25.0",
     "httpx>=0.27,<1",

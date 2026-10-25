@@ -10,7 +10,7 @@ aiosignal==1.4.0
     # via aiohttp
 anyio==4.15.1
     # via httpx
-astra-plugin-sdk==0.6.1
+astra-plugin-sdk==0.6.4
     # via -r requirements.txt
 async-timeout==5.0.1 ; python_full_version < '3.11'
     # via aiohttp

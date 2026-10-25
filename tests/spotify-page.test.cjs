@@ -107,6 +107,7 @@ test('catalog reads personal playlists only from the library sidebar',()=>{
   const sidebar={querySelectorAll:()=>[playlist]};
   global.location={origin:'https://open.spotify.com',pathname:'/'};
   global.document={querySelector:s=>s==='main'?{}:s.includes('user-widget')?{}:s.includes('YourLibrary')?sidebar:null};
+  delete globalThis.__astraSpotifyLibrary;
   const result=catalog({kind:'playlists'});
   assert.equal(result.playlists.length,1);
   assert.equal(result.playlists[0].playlist_id,'abc');
@@ -115,6 +116,26 @@ test('catalog reads personal playlists only from the library sidebar',()=>{
   assert(catalog({kind:'playlists'}).error);
 });
 
+
+test('catalog reads virtual library rows, liked songs and waits for an empty sidebar',()=>{
+  const catalog=require('../ui/spotify-catalog.js');
+  const row=(uri,title)=>({id:'listrow-title-'+uri,textContent:title,closest:()=>({querySelectorAll:()=>[{src:'https://i.scdn.co/image/x'}]})});
+  let rows=[];
+  const sidebar={querySelectorAll:s=>s.includes('listrow-title-')?rows:[],getAttribute:()=>null};
+  global.location={origin:'https://open.spotify.com',pathname:'/'};
+  global.document={querySelector:s=>s==='main'?{}:s.includes('user-widget')?{}:s.includes('YourLibrary')?sidebar:null};
+  delete globalThis.__astraSpotifyLibrary;
+  const waiting=catalog({kind:'playlists'});
+  assert.equal(waiting.ready,false);
+  assert.equal(waiting.empty,true);
+  rows=[row('spotify:playlist:5Kaf','Мой плейлист № 2'),row('spotify:user:me:collection','Любимые треки'),row('spotify:album:zzz','Album')];
+  const result=catalog({kind:'playlists'});
+  assert.equal(result.ready,true);
+  assert.deepEqual(result.playlists.map(p=>[p.playlist_id,p.title]),[['5Kaf','Мой плейлист № 2'],['liked','Любимые треки']]);
+  assert.equal(result.playlists[0].url,'https://open.spotify.com/playlist/5Kaf');
+  assert.equal(result.playlists[1].url,'https://open.spotify.com/collection/tracks');
+  delete globalThis.__astraSpotifyLibrary;
+});
 
 test('queue reads only ordered Next rows and excludes Now Playing and playlist order',()=>{
   const {ids}=fixture();

@@ -226,9 +226,11 @@ async function main() {
         const {targetId} = await browserConnection.call('Target.createTarget',{url:'about:blank',background:true});
         const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
         catalog = await CDP.connect(targets.find(t=>t.id===targetId).webSocketDebuggerUrl);
+        // A background tab is "hidden", and Spotify then renders no rows of the library sidebar.
+        await catalog.call('Emulation.setFocusEmulationEnabled',{enabled:true});
       }
       await catalog.call('Page.navigate',{url});
-      let result, visitedHub = false, selectedMusic = false;
+      let result, visitedHub = false, selectedMusic = false, clearedFilter = false;
       for (let n=0;n<80;n++) {
         await delay(250); result=await readCatalog(catalog,request);
         if(result.error) throw new Error(result.error);
@@ -238,6 +240,10 @@ async function main() {
         if(request.kind==='mixes' && !result.playlists?.length && result.hub_url && !visitedHub) {
           visitedHub = true; await catalog.call('Page.navigate',{url:spotifyUrl(result.hub_url)}); continue;
         }
+        if(request.kind==='playlists' && result.clear_filter && !clearedFilter) {
+          clearedFilter = true; await click(catalog,result.clear_filter); continue;
+        }
+        if(request.kind==='playlists' && result.empty && n>=40) return result;
         if(result.ready && ((result.tracks || result.playlists)?.length || ['playlists','mixes'].includes(request.kind) && n>=40 || n>=79)) return result;
       }
       throw new Error('Не удалось загрузить список Spotify. Повторите действие или откройте его окно.');

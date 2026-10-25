@@ -97,3 +97,6 @@ button.liked { border-color: rgba(255, 193, 226, .9); color: #ffd3ec; text-shado
 .notice { grid-column: 1 / -1; grid-row: 4; min-height: 10px; overflow: hidden; color: var(--color-text-muted, #d4c4ea); font-size: 9px; line-height: 1.15; white-space: nowrap; text-overflow: ellipsis; }
 .notice.bad { color: var(--color-danger, #ff9b9b); }
 #audio { display: none; }
+
+/* In a desktop.widget card Astra draws the outer shell and edge. */
+html.host-card .player { border: 0; }
