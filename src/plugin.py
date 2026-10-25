@@ -1422,7 +1422,8 @@ class AstraMusic(Plugin):
         raw = str(value or "").strip()
         parsed = urlsplit(raw)
         host = parsed.hostname or ""
-        if parsed.scheme != "https" or not raw or not parsed.path.lower().endswith(".m3u8"):
+        # VK serves either HLS (.m3u8) or, since October 2026, a direct .mp3 file.
+        if parsed.scheme != "https" or not raw or not parsed.path.lower().endswith((".m3u8", ".mp3")):
             return ""
         if not any(
             host == domain or host.endswith("." + domain)
@@ -1783,7 +1784,7 @@ class AstraMusic(Plugin):
             stream_url = self._easyvk_stream_url(result.get("stream_url"))
             duration = float(result.get("duration_seconds", 0) or 0)
             if not stream_url:
-                raise MusicError("EasyVK вернул неподдерживаемую ссылку VK HLS-аудиопотока.")
+                raise MusicError("EasyVK вернул неподдерживаемую ссылку на аудиопоток VK.")
             self._vk_stream_cache[cache_key] = (stream_url, time.time() + 45)
 
         return {"url": stream_url, "duration_seconds": duration}

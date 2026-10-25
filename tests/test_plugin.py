@@ -711,3 +711,12 @@ def test_edge_lookup_works_without_daemon_environment_paths(monkeypatch):
     monkeypatch.setattr(Path, "is_file", lambda self: self == expected)
     monkeypatch.setattr(playback_host.shutil, "which", lambda name: None)
     assert playback_host.find_edge_browser() == expected.resolve()
+
+
+def test_vk_stream_accepts_hls_and_direct_mp3_only_from_vk_hosts():
+    url = AstraMusic._easyvk_stream_url
+    assert url("https://cs3-11v4.vkuseraudio.ru/s/v1/acmp/abc.mp3?siren=1") == "https://cs3-11v4.vkuseraudio.ru/s/v1/acmp/abc.mp3?siren=1"
+    assert url("https://audio.vkuseraudio.net/1/index.m3u8")
+    assert url("http://cs3-11v4.vkuseraudio.ru/s/v1/acmp/abc.mp3") == ""
+    assert url("https://evil.example/abc.mp3") == ""
+    assert url("https://cs3-11v4.vkuseraudio.ru/s/v1/acmp/abc.exe") == ""

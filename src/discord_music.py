@@ -176,6 +176,10 @@ class DiscordSource:
                       "queue_index": self.index, "status": "ready"}
             revision = self.revision
             spotify = self.spotify
+            if not spotify:
+                # VK now also serves plain .mp3; the decoder must not get HLS demuxer options for it.
+                source = urlsplit(self.assets.get("0", "")).path.lower()
+                result["stream_format"] = "hls" if source.endswith(".m3u8") else "file"
             if want_next is True and not spotify:
                 result["next_track"] = queue_next(self.queue, self.index, self.track)
             if self.spotify:

@@ -390,3 +390,17 @@ def test_saved_spotify_connection_restores_once_without_play_command(plugin, mon
     player.restore_saved()
     player.restore_saved()
     assert calls == ["attach"]
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://cs3-11v4.vkuseraudio.ru/s/v1/acmp/abc.mp3?siren=1", "file"),
+    ("https://audio.vkuseraudio.net/1/index.m3u8?x=1", "hls"),
+])
+def test_discord_state_reports_whether_the_source_is_hls(plugin, monkeypatch, url, expected):
+    source = plugin._discord_music
+    monkeypatch.setattr(plugin._audio_host, "ensure_server", lambda: "http://127.0.0.1:12345/" + "b" * 40)
+    source.session, source.spotify, source.revision = "a" * 32, False, 3
+    source.assets, source.track = {"0": url}, {"service": "vk", "track_id": "1", "title": "Song", "artist": "Artist"}
+    result = asyncio.run(source.current("a" * 32))
+    assert result["stream_format"] == expected
+    assert result["stream_url"].endswith("/discord-stream/3/0")
