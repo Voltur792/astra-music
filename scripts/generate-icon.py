@@ -1,12 +1,10 @@
-"""Create the shared Astra Music store and navigation icon assets.
+"""Create the shared Astra Music store and desktop icon assets.
 
 Run from any directory with Pillow installed: python scripts/generate-icon.py
 """
 
 from __future__ import annotations
 
-import base64
-import io
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -53,18 +51,6 @@ def make_icon() -> Image.Image:
     return canvas.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
 
 
-def svg_data(image: Image.Image, label: str) -> str:
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG", optimize=True)
-    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SIZE} {SIZE}" '
-        f'role="img" aria-label="{label}">'
-        f'<image x="0" y="0" width="{SIZE}" height="{SIZE}" '
-        f'href="data:image/png;base64,{encoded}"/></svg>'
-    )
-
-
 def main() -> None:
     image = make_icon()
     image.quantize(colors=128).save(ROOT / "icon.png", optimize=True, compress_level=9)
@@ -74,9 +60,7 @@ def main() -> None:
     icon_size = (ROOT / "icon.png").stat().st_size
     if icon_size > PNG_MAX_BYTES:
         raise SystemExit(f"icon.png is {icon_size} bytes; maximum is {PNG_MAX_BYTES} bytes")
-    tab_svg = svg_data(image.resize((48, 48), Image.Resampling.LANCZOS), "Музыка")
-    module = '"""Navigation icon generated from the shared Astra Music icon."""\n\nTAB_ICON_SVG = ' + repr(tab_svg) + "\n"
-    (ROOT / "src" / "tab_icon.py").write_text(module, encoding="utf-8")
+    # src/tab_icon.py is hand-drawn vector SVG: Astra 0.2.7 leaves raster tab icons blank.
     print(f"Generated shared {SIZE}px icon assets; icon.png is {icon_size:,}/{PNG_MAX_BYTES:,} bytes")
 
 
