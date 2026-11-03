@@ -123,7 +123,7 @@ class PlaybackHost:
                                 self.end_headers()
                                 for chunk in response.iter_raw():
                                     self.wfile.write(chunk)
-                        except (BrokenPipeError, ConnectionResetError):
+                        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                             pass
                         except httpx.HTTPError:
                             self.close_connection = True
@@ -171,6 +171,7 @@ class PlaybackHost:
                         "music_playback_stop": host.plugin.ui_playback_stop,
                         "music_playback_report": host.plugin.ui_playback_report,
                         "music_playback_prepare_next": host.plugin.ui_playback_prepare_next,
+                        "music_playback_retry": host.plugin.ui_playback_retry,
                         "music_visualizer_get": host.plugin.ui_visualizer_get,
                         "music_visualizer_sample": host.plugin.ui_visualizer_sample,
                     }
@@ -222,6 +223,7 @@ class PlaybackHost:
                 raise RuntimeError("Не найден Microsoft Edge для постоянного аудиоплеера")
             self._ensure_server_locked()
             url = f"http://127.0.0.1:{self.server.server_port}/{self.token}/player-v12.html"
+            log.info("Starting native audio host browser=%s bypass_loopback=true", browser)
             if self.log_file is None:
                 self.plugin.data_dir.mkdir(parents=True, exist_ok=True)
                 self.log_file = (self.plugin.data_dir / "audio-host.log").open("ab")
@@ -316,6 +318,7 @@ def main():
                 "--autoplay-policy=no-user-gesture-required", "--disable-background-timer-throttling",
                 "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
                 "--disable-background-media-suspend", "--disable-features=CalculateNativeWinOcclusion",
+                "--proxy-bypass-list=<-loopback>",
                 "--user-data-dir=" + profile, url,
             ], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if not kernel.AssignProcessToJobObject(job, int(process._handle)):
@@ -345,7 +348,7 @@ def run_posix_audio(browser, url, transport):
         process = subprocess.Popen([
             str(browser), "--headless=new", "--disable-extensions", "--disable-sync", "--no-first-run", "--no-default-browser-check",
             "--autoplay-policy=no-user-gesture-required", "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
-            "--disable-background-media-suspend", "--user-data-dir=" + profile, url,
+            "--disable-background-media-suspend", "--proxy-bypass-list=<-loopback>", "--user-data-dir=" + profile, url,
         ], start_new_session=True)
         try:
             while process.poll() is None and not stopped.wait(2):

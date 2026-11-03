@@ -74,3 +74,27 @@ def test_failed_stream_resolution_keeps_current_track_index(plugin, monkeypatch)
     with pytest.raises(MusicError):
         plugin._advance_yandex_queue_sync(1)
     assert plugin._playback_queue_index == 0
+
+
+def test_playback_retry_reuses_queue_activation_with_kwargs(plugin, monkeypatch):
+    # The retry path calls _guarded with keyword-only arguments: the earlier
+    # *args-only _guarded raised TypeError and the retry never happened.
+    calls = []
+
+    def fake_activate(*, auto_play, position_seconds=0.0):
+        calls.append((auto_play, position_seconds))
+        return {"success": True, "status": "play_requested"}
+
+    monkeypatch.setattr(plugin, "_activate_yandex_queue_item_sync", fake_activate)
+    plugin._playback_state.update(service="yandex", track_id="51", position_seconds=12.5)
+    import asyncio
+    result = asyncio.run(plugin.ui_playback_retry())
+    assert result["success"] and not result.get("error")
+    assert calls == [(True, 12.5)]
+
+
+def test_playback_retry_rejects_unknown_service(plugin):
+    import asyncio
+    plugin._playback_state.update(service="spotify")
+    result = asyncio.run(plugin.ui_playback_retry())
+    assert "error" in result

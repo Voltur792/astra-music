@@ -301,7 +301,7 @@
         <summary>Как подключить Яндекс Музыку и пользоваться</summary>
         <div class="help-body">
           <p><strong>Где взять токен.</strong> Открой ссылку ниже, войди в нужный аккаунт Яндекса и подтверди доступ. В адресе страницы найди значение после <code>access_token=</code> и до следующего символа <code>&amp;</code>. Скопируй только само значение токена.</p>
-          <p><code>https://oauth.yandex.ru/authorize?response_type=token&amp;client_id=23cabbbdc6cd418abb4b39c32c41195d</code></p>
+          <div class="token-link row"><input class="token-link-input" type="text" readonly aria-label="Ссылка для получения токена Яндекс Музыки" value="https://oauth.yandex.ru/authorize?response_type=token&amp;client_id=23cabbbdc6cd418abb4b39c32c41195d"><button type="button" class="copy-token-link" aria-live="polite">Скопировать ссылку</button></div>
           <p>Вставь токен в поле выше и нажми «Сохранить», затем «Проверить». Для прослушивания нужна активная подписка Яндекс Плюс. Токен принимается именно от аккаунта Яндекс Музыки; токен обычного OAuth-приложения может не подойти.</p>
           <p><strong>Как пользоваться.</strong> Выбери Яндекс Музыку в поиске и введи исполнителя или песню. «Открыть в Яндекс Музыке» откроет приложение, если оно установлено, иначе страницу сервиса; начало воспроизведения подтверди в самом плеере. В чате попроси: <em>«Найди в Яндекс Музыке …»</em> или <em>«Открой песню … в Яндекс Музыке»</em>.</p>
         </div>`;
@@ -352,9 +352,30 @@
     card.append(head);
     if (manualAuth) card.append(manualAuth);
     else card.append(fields);
-    if (help) card.append(help);
+    if (help) {
+      card.append(help);
+      const link = help.querySelector(".token-link-input");
+      const copy = help.querySelector(".copy-token-link");
+      if (link && copy) {
+        link.addEventListener("click", () => link.select());
+        copy.addEventListener("click", () => copyTokenLink(link, copy));
+      }
+    }
     card.append(actions);
     return card;
+  }
+
+  async function copyTokenLink(input, button) {
+    try {
+      await navigator.clipboard.writeText(input.value);
+      button.textContent = "Ссылка скопирована";
+    } catch (_) {
+      input.focus();
+      input.select();
+      let copied = false;
+      try { copied = document.execCommand("copy"); } catch (_) {}
+      button.textContent = copied ? "Ссылка скопирована" : "Нажмите Ctrl+C";
+    }
   }
 
   function fieldValue(card, key) {

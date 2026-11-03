@@ -1354,10 +1354,10 @@ class AstraMusic(Plugin):
 
     # --- services ----------------------------------------------------------
 
-    async def _guarded(self, fn: Any, *args: Any) -> dict[str, Any]:
+    async def _guarded(self, fn: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """Run a blocking service call off the event loop, errors as data."""
         try:
-            return await asyncio.to_thread(fn, *args)
+            return await asyncio.to_thread(fn, *args, **kwargs)
         except Exception as exc:
             log.exception("%s failed", getattr(fn, "__name__", fn))
             return {"success": False, "error": str(exc)}
@@ -3550,6 +3550,24 @@ class AstraMusic(Plugin):
                 return dict(self._prepared_next)
         finally:
             self._prepare_next_lock.release()
+
+
+    @ui_call("music_playback_retry")
+    async def ui_playback_retry(self, **params: Any) -> dict[str, Any]:
+        with self._playback_lock:
+            service = str(self._playback_state.get("service") or "yandex")
+            position = float(self._playback_state.get("position_seconds") or 0)
+        if service == "vk":
+            activate = self._activate_vk_queue_item_sync
+        elif service == "yandex":
+            activate = self._activate_yandex_queue_item_sync
+        else:
+            return {"error": "\u0414\u043b\u044f \u044d\u0442\u043e\u0433\u043e \u0441\u0435\u0440\u0432\u0438\u0441\u0430 \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438\u0439 \u043f\u043e\u0432\u0442\u043e\u0440 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d."}
+        result = await self._guarded(activate, auto_play=True, position_seconds=position)
+        if result.get("error"):
+            return result
+        log.warning("Playback retry requested service=%s result_status=%s", service, result.get("status"))
+        return result
 
     @ui_call("music_playback_state")
     async def ui_playback_state(self, **params: Any) -> dict[str, Any]:

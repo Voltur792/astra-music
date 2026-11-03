@@ -69,9 +69,14 @@ body {
 }
 
 input,
-textarea {
+textarea,
+.help-body {
   user-select: text;
 }
+
+.token-link { flex-wrap: wrap; gap: 8px; }
+.token-link-input { flex: 1 1 240px; min-width: 0; }
+.copy-token-link { flex: 0 0 auto; }
 
 /* The iframe has no intrinsic height and the host never scrolls a plugin page,
    so the root is positioned and scrolling is ours. */

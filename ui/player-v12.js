@@ -106,6 +106,8 @@ let meterContext = null;
 let meterAnalyser = null;
 let meterData = null;
 let lastMeterAttemptAt = 0;
+let playbackRetryRevision = -1;
+let playbackRetryCount = 0;
 const spectrumCanvas = document.createElement("canvas");
 spectrumCanvas.className = "music-spectrum";
 spectrumCanvas.setAttribute("aria-hidden", "true");
@@ -248,6 +250,11 @@ function parse(value) {
     return value || {};
   }
   return value || {};
+}
+
+function isRetryablePlaybackError(error) {
+  const name = String(error?.name || error || "");
+  return ["AbortError", "NotSupportedError", "NetworkError", "MediaError", "PlaybackError"].includes(name);
 }
 
 function formatTime(value) {
@@ -426,6 +433,21 @@ async function startPlayback() {
     setVisualPlaying(true);
     await report("playing");
   } catch (error) {
+    if (isRetryablePlaybackError(error) && playbackRetryRevision !== current.revision) {
+      playbackRetryRevision = current.revision;
+      playbackRetryCount = 0;
+    }
+    if (isRetryablePlaybackError(error) && playbackRetryCount < 1) {
+      playbackRetryCount += 1;
+      setNotice("Повторяю загрузку аудиопотока…");
+      try {
+        const retried = parse(await call("music_playback_retry"));
+        if (!retried.error) {
+          await sync();
+          return;
+        }
+      } catch (_) {}
+    }
     const blocked = error?.name === "NotAllowedError";
     await report(blocked ? "blocked" : "failed", error?.name || "PlaybackError");
     setNotice(blocked ? "Автозапуск запрещён — нажмите ▶" : "Не удалось запустить аудио", true);
