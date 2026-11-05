@@ -1,4 +1,5 @@
 // Private loopback transport for the persistent WebView2 audio process.
+if (!window.MUSIC_QUEUE_EMBEDDED) {
 window.MUSIC_AUDIO_HOST = location.pathname.endsWith("/player-v12.html");
 const nativeRoot = location.pathname.slice(0, location.pathname.lastIndexOf("/"));
 window.astra = {
@@ -27,4 +28,5 @@ if (window.MUSIC_AUDIO_HOST) {
     // Without a running player script there is no heartbeat, so the supervisor
     // can restart a failed browser instead of accepting a permanently blank page.
   });
+}
 }

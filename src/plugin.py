@@ -866,10 +866,10 @@ def _data_dir() -> Path:
 @ui_page(
     "music",
     "Музыка",
-    "index.html",
+    "host-page.js",
     icon_svg=TAB_ICON_SVG,
 )
-@ui_effect("visualizer.html", id="music-visualizer", audio=True)
+@ui_effect("host-visualizer.js", id="music-visualizer", audio=True)
 class AstraMusic(Plugin):
     """Astra plugin: music-controller."""
 
@@ -883,6 +883,8 @@ class AstraMusic(Plugin):
         from .discord_music import DiscordSource
         self._discord_music = DiscordSource(self)
         self._desktop_widget = DesktopWidget(self)
+        from .widget_theme import normalize_theme
+        self._widget_theme = normalize_theme(self._read_settings().get("widget_theme"))
         self._spotify = SpotifyBrowser(self)
         self._presenter = RadioPresenter(self)
         self._system_audio = SystemAudio()
@@ -3257,6 +3259,7 @@ class AstraMusic(Plugin):
         ]))
         player.props = {} if self._audio_host.enabled else {"audio": "true"}
         contributions.append(player)
+        contributions.append(self.ui_effect("queue-controller.js", id="music-queue-overlay"))
         for contribution in contributions:
             if contribution.id == "music":
                 contribution.transparent = True
@@ -3277,9 +3280,47 @@ class AstraMusic(Plugin):
     # Handlers run on the daemon's event loop, so each one goes through
     # `_guarded`: a slow network call must not freeze Astra's window.
 
+    @ui_call("music_support_open")
+    async def ui_support_open(self, **params: Any) -> dict[str, Any]:
+        opened = await asyncio.to_thread(open_in_browser, "https://github.com/Voltur792/astra-music/issues/new/choose")
+        # Even an empty `error` key selects the SDK's raw-response branch,
+        # which discards sibling payload fields such as success.
+        return {"success": True} if opened else {"error": "Не удалось открыть браузер. Повторите попытку."}
+
+    @ui_call("music_visualizer_layer_report")
+    async def ui_visualizer_layer_report(self, **params: Any) -> dict[str, Any]:
+        placement = "wallpaper" if params.get("placement") == "wallpaper" else "slot"
+        log.info("Background visualizer placement: %s", placement)
+        return {"ok": True}
+
     @ui_call("music_desktop_get")
     async def ui_desktop_get(self, **params: Any) -> dict[str, Any]:
         return self._desktop_widget.snapshot()
+
+    @ui_call("music_widget_theme_get")
+    async def ui_widget_theme_get(self, **params: Any) -> dict[str, Any]:
+        return dict(self._widget_theme)
+
+    @ui_call("music_widget_theme_set")
+    async def ui_widget_theme_set(self, **params: Any) -> dict[str, Any]:
+        from .widget_theme import normalize_theme
+        if not isinstance(params.get("settings"), dict):
+            return {"error": "Не переданы настройки цветов."}
+        updated = normalize_theme({**self._widget_theme, **params["settings"]})
+        with self._settings_lock:
+            try:
+                stored = json.loads(self.settings_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                stored = {}
+            if not isinstance(stored, dict):
+                stored = {}
+            stored["widget_theme"] = updated
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            temporary = self.settings_file.with_suffix(".theme.tmp")
+            temporary.write_text(json.dumps(stored, ensure_ascii=False, indent=2), encoding="utf-8")
+            temporary.replace(self.settings_file)
+            self._widget_theme = updated
+        return dict(updated)
 
     @ui_call("music_desktop_set")
     async def ui_desktop_set(self, **params: Any) -> dict[str, Any]:
@@ -3582,6 +3623,7 @@ class AstraMusic(Plugin):
                 bool(state.get("url")),
             )
         state["stream_url"] = state.get("url", "")
+        state["widget_theme"] = dict(self._widget_theme)
         return state
 
     @ui_call("music_radio_get")
@@ -3678,6 +3720,67 @@ class AstraMusic(Plugin):
                 "can_next", "can_previous", "can_seek", "playback_message",
             )
         }
+
+    @ui_call("music_remote_state")
+    async def ui_remote_state(self, **params: Any) -> dict[str, Any]:
+        return {"playback": await self.ui_playback_status(), "visual": await self.ui_visualizer_state(),
+                "widget_theme": dict(self._widget_theme)}
+
+    @ui_call("music_queue")
+    async def ui_queue(self, **params: Any) -> dict[str, Any]:
+        with self._playback_lock:
+            state = self._playback_state
+            supported = state.get("service") in {"yandex", "vk"}
+            queue = self._playback_queue if supported else []
+            try:
+                offset = max(0, int(params.get("offset", max(0, self._playback_queue_index - 1))))
+            except (TypeError, ValueError):
+                offset = 0
+            items = [{"index": index, **{key: item.get(key, "") for key in
+                      ("service", "track_id", "title", "artist")}}
+                     for index, item in enumerate(queue[offset:offset + 100], offset)]
+            return {"items": items, "offset": offset, "total": len(queue),
+                    "service": state.get("service"), "widget_theme": dict(self._widget_theme),
+                    "current_index": self._playback_queue_index, "revision": state.get("revision"),
+                    "title": state.get("source_title") or "Очередь воспроизведения",
+                    "message": "Очередь Spotify доступна в окне Spotify." if state.get("service") == "spotify"
+                    else "Новые рекомендации появятся по мере воспроизведения." if self._playback_source == "radio"
+                    else ""}
+
+    @ui_call("music_queue_window")
+    async def ui_queue_window(self, **params: Any) -> dict[str, Any]:
+        from .queue_window import QueueWindow
+        if not hasattr(self, "_queue_window"):
+            self._queue_window = QueueWindow(self)
+        anchor = {}
+        for key, default in (("x", 24), ("y", 24), ("height", 160)):
+            value = params.get(key, default)
+            anchor[key] = round(value) if type(value) in (int, float) and -100000 <= value <= 100000 else default
+        anchor["on_top"] = params.get("on_top", True) is True
+        return await self._guarded(self._queue_window.toggle, anchor)
+
+    def _queue_play_sync(self, index, revision):
+        if type(index) is not int:
+            raise MusicError("Некорректный номер трека.")
+        with self._playback_lock:
+            if revision != self._playback_state.get("revision"):
+                raise MusicError("Очередь изменилась. Откройте её заново.")
+            service = self._playback_state.get("service")
+            if service not in {"yandex", "vk"} or not 0 <= index < len(self._playback_queue):
+                raise MusicError("Трек больше недоступен в очереди.")
+            previous = self._playback_queue_index
+            self._playback_queue_index = index
+        try:
+            activate = self._activate_vk_queue_item_sync if service == "vk" else self._activate_yandex_queue_item_sync
+            return activate(auto_play=True)
+        except Exception:
+            with self._playback_lock:
+                self._playback_queue_index = previous
+            raise
+
+    @ui_call("music_queue_play")
+    async def ui_queue_play(self, **params: Any) -> dict[str, Any]:
+        return await self._guarded(self._queue_play_sync, params.get("index"), params.get("revision"))
 
     @ui_call("music_playback_control")
     async def ui_playback_control(self, **params: Any) -> dict[str, Any]:
@@ -3789,6 +3892,8 @@ class AstraMusic(Plugin):
         if hasattr(self, "_timer_bridge"):
             await asyncio.to_thread(self._timer_bridge.close)
         self._desktop_widget.close()
+        if hasattr(self, "_queue_window"):
+            self._queue_window.close()
         self._audio_host.close()
         self._system_audio.close()
         for client in self.clients.values():

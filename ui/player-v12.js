@@ -513,6 +513,7 @@ async function sync() {
   busy = true;
   try {
     let state = parse(await call("music_playback_state"));
+    window.MusicTheme?.apply(state.service, state.widget_theme);
     const restoreDelay = backendRestoreError ? 60000 : 5000;
     if (!state.url && Date.now() - lastBackendRestoreAt > restoreDelay) {
       lastBackendRestoreAt = Date.now();

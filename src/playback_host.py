@@ -19,6 +19,12 @@ from urllib.parse import urlsplit
 log = logging.getLogger("astra-music.audio-host")
 
 
+def proxy_audio(state):
+    """Capture needs same-origin media; HLS manifests retain their segment base."""
+    return bool(state.get("url")) and (state.get("service") == "yandex" or
+        state.get("service") == "vk" and urlsplit(state["url"]).path.lower().endswith(".mp3"))
+
+
 def find_edge_browser():
     """Astra's daemon omits ProgramFiles from its child environment."""
     if sys.platform != "win32":
@@ -99,10 +105,10 @@ class PlaybackHost:
                         expected = f"stream/{state.get('revision')}"
                         if name != expected:
                             candidates = [state, host.plugin._prepared_next]
-                            state = next((item for item in candidates if item.get("service") == "yandex" and item.get("url")
+                            state = next((item for item in candidates if proxy_audio(item)
                                 and name == "stream/" + hashlib.sha256(item["url"].encode()).hexdigest()
                                 and (item is candidates[0] or item.get("expires_at", 0) > time.time())), {})
-                        if state.get("service") != "yandex" or not state.get("url"):
+                        if not proxy_audio(state):
                             self.send_error(404); return
                         headers = {"Accept-Encoding": "identity"}
                         requested_range = self.headers.get("Range", "")
@@ -154,6 +160,13 @@ class PlaybackHost:
                     methods = {
                         "music_playback_state": host.plugin.ui_playback_state,
                         "music_playback_status": host.plugin.ui_playback_status,
+                        "music_remote_state": host.plugin.ui_remote_state,
+                        "music_queue": host.plugin.ui_queue,
+                        "music_queue_play": host.plugin.ui_queue_play,
+                        "music_queue_window": host.plugin.ui_queue_window,
+                        "music_widget_theme_get": host.plugin.ui_widget_theme_get,
+                        "music_widget_theme_set": host.plugin.ui_widget_theme_set,
+                        "music_support_open": host.plugin.ui_support_open,
                         "music_spotify_status": host.plugin.ui_spotify_status,
                         "music_spotify_job_start": host.plugin.ui_spotify_job_start,
                         "music_spotify_job_status": host.plugin.ui_spotify_job_status,
@@ -186,9 +199,9 @@ class PlaybackHost:
                             if method is None:
                                 self.send_error(404); return
                             result = asyncio.run(method(**(request.get("params") or {})))
-                        if request.get("method") in {"music_playback_state", "music_playback_prepare_next"} and result.get("service") == "yandex" and result.get("url"):
-                            # A same-origin stream allows captureStream() to
-                            # measure Yandex audio instead of returning silence.
+                        if request.get("method") in {"music_playback_state", "music_playback_prepare_next"} and proxy_audio(result):
+                            # Same-origin MP3 allows captureStream() to measure
+                            # VK/Yandex audio instead of cross-origin silence.
                             result = dict(result)
                             stream_key = hashlib.sha256(result["url"].encode()).hexdigest()
                             result["url"] = f"http://127.0.0.1:{host.server.server_port}/{host.token}/stream/{stream_key}"

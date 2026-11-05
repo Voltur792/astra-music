@@ -691,7 +691,7 @@ def test_windows_widget_is_only_a_remote_control():
     html = (root / "ui/player-remote.html").read_text(encoding="utf-8-sig")
     script = (root / "ui/player-remote.js").read_text(encoding="utf-8")
     assert "<audio" not in html and "new Audio(" not in script
-    assert "music_playback_control" in script and "music_visualizer_state" in script
+    assert "music_playback_control" in script and "music_remote_state" in script
 
 
 @pytest.mark.parametrize("style", ["mesh", "binary", "terrain", "silk", "splash", "rain", "contour"])

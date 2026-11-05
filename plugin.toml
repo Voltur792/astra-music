@@ -1,7 +1,7 @@
 [plugin]
 id = "music-controller"
 name = "Music Controller"
-version = "1.4.5"
+version = "2.0.0"
 description = "Search Yandex Music, VK and Spotify; play tracks and playlists inside Astra with voice controls."
 call_timeout_secs = 600
 author = "Voltur"
@@ -18,6 +18,7 @@ runtimes = ["python", "node"]
 tools = true
 actions = true
 ui_contributions = true
+dom_access = true
 event_handlers = true
 
 # Outbound host calls are default-deny. State events duck music while Astra
@@ -25,6 +26,7 @@ event_handlers = true
 # The tab still talks to its own process over CallFromUi, and account tokens
 # remain in the plugin's data folder.
 [permissions]
+dom_access = { reason = "Shows the music queue directly below Astra's music widget, above neighboring cards, without changing widget size" }
 send_chat_message = { reason = "Optional radio presenter: announces songs using Astra's configured personality, model and voice only when enabled by the user" }
 subscribe_events = { types = ["state_changed", "tts_started", "tts_completed", "tts_interrupted"], reason = "Temporarily lower the music player's volume while Astra listens or speaks, including optional radio announcements, then restore it" }
 

@@ -9,8 +9,8 @@ import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import Request, ProxyHandler, build_opener
+import httpx
+from .loopback_http import client
 
 
 def registry_dir():
@@ -33,6 +33,12 @@ class IntegrationServer:
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def setup(self):
+                super().setup()
+                self.connection.settimeout(15)
+
             def log_message(self, *args):
                 pass
 
@@ -106,13 +112,14 @@ def integration_call(name, method, **params):
         port = int(location["port"])
         if not 1 <= port <= 65535:
             raise ValueError("Некорректный порт")
-        request = Request(f"http://127.0.0.1:{port}/api", data=json.dumps({"method": method, "params": params}).encode(),
-                          headers={"Authorization": "Bearer " + location["token"], "Content-Type": "application/json"})
-        with build_opener(ProxyHandler({})).open(request, timeout=95) as response:
-            result = json.load(response)
+        response = client().post(f"http://127.0.0.1:{port}/api",
+                                 json={"method": method, "params": params},
+                                 headers={"Authorization": "Bearer " + location["token"]}, timeout=95)
+        response.raise_for_status()
+        result = response.json()
         if isinstance(result, dict) and result.get("error"):
             raise RuntimeError(str(result["error"]))
         return result
-    except (OSError, ValueError, KeyError, URLError) as exc:
+    except (OSError, ValueError, KeyError, httpx.HTTPError) as exc:
         label = {"music": "Музыка", "home": "Умный дом"}.get(name, name)
         raise RuntimeError(f"Нет связи с плагином «{label}». Обновите и перезапустите его в Astra.") from exc

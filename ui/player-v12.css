@@ -32,14 +32,10 @@ body { color-scheme: dark; color: var(--color-text, #f7f0ff); font-family: var(-
   will-change: transform, opacity;
 }
 .player::before {
-  background:
-    radial-gradient(ellipse at 18% 40%, rgba(23, 230, 205, .95), transparent 43%),
-    radial-gradient(ellipse at 78% 58%, rgba(171, 62, 249, .88), transparent 46%);
+  background: none;
 }
 .player::after {
-  background:
-    radial-gradient(ellipse at 67% 20%, rgba(30, 177, 244, .82), transparent 43%),
-    radial-gradient(ellipse at 30% 82%, rgba(230, 64, 218, .8), transparent 42%);
+  background: none;
 }
 .player > :not(.artwork-glow) { position: relative; z-index: 1; }
 .player > .music-spectrum { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
@@ -90,13 +86,36 @@ button.primary { width: 34px; height: 34px; border: 1px solid rgba(243, 224, 255
 .glyph-skip { position: relative; top: -1px; }
 button:disabled { opacity: .4; cursor: default; }
 button:hover:not(:disabled) { filter: brightness(1.18); }
-button.liked { border-color: rgba(255, 193, 226, .9); color: #ffd3ec; text-shadow: 0 0 8px rgba(255, 92, 168, .8); }
+button.liked { border-color: rgba(255, 193, 226, .9); color: #ffd3ec; }
 .volume { grid-column: 3; grid-row: 1 / span 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; color: #f2ddff; font-size: 10px; }
 .volume input { width: 14px; height: 40px; min-width: 14px; writing-mode: vertical-rl; direction: rtl; accent-color: #d3a2ff; }
 .volume output { color: var(--color-text-muted, #d4c4ea); font-size: 9px; font-variant-numeric: tabular-nums; }
 .notice { grid-column: 1 / -1; grid-row: 4; min-height: 10px; overflow: hidden; color: var(--color-text-muted, #d4c4ea); font-size: 9px; line-height: 1.15; white-space: nowrap; text-overflow: ellipsis; }
 .notice.bad { color: var(--color-danger, #ff9b9b); }
 #audio { display: none; }
+
+.player > .queue-panel {
+  position: absolute; z-index: 5; inset: 0; padding: 7px 9px;
+  display: flex; flex-direction: column; gap: 4px;
+  background: #291b42; color: #f7f0ff;
+}
+.player > .queue-panel[hidden] { display: none; }
+.queue-header { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.queue-header strong { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.queue-header button { width: 25px; height: 25px; }
+.queue-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #b78ae1 #291b42; }
+.queue-list button { box-shadow: none; border-radius: 5px; }
+.queue-track { display: flex; width: 100%; height: auto; min-height: 36px; padding: 5px; gap: 7px; text-align: left; background: transparent; border: 1px solid transparent; }
+.queue-track:hover:not(:disabled) { background: #493061; filter: none; }
+.queue-track[aria-current="true"] { background: #523473; border-color: #b78ae1; }
+.queue-number { width: 23px; flex: 0 0 23px; color: #e4cffa; font-size: 10px; font-variant-numeric: tabular-nums; }
+.queue-track-text { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
+.queue-track-text strong, .queue-track-text small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.queue-track-text strong { font-size: 11px; line-height: 1.2; }
+.queue-track-text small { color: #e4cffa; font-size: 10px; line-height: 1.2; }
+.queue-message { margin: 0; color: #e4cffa; font-size: 10px; line-height: 1.25; flex: 0 0 auto; overflow-wrap: anywhere; }
+.queue-page { width: 100%; min-height: 28px; height: auto; background: transparent; border-color: #b78ae1; font-size: 11px; }
+button:focus-visible, input:focus-visible { outline: 2px solid #f2ddff; outline-offset: -2px; }
 
 /* In a desktop.widget card Astra draws the outer shell and edge. */
 html.host-card .player { border: 0; }

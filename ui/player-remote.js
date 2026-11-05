@@ -58,7 +58,8 @@ async function sync() {
   if (pending || !window.astra?.callBackend) return;
   pending = true;
   try {
-    const [next, visual] = await Promise.all([call("music_playback_status"), call("music_visualizer_state")]);
+    const {playback: next, visual, widget_theme} = await call("music_remote_state");
+    window.MusicTheme?.apply(next.service, widget_theme);
     state = next; render();
     const settings = visual.settings || {};
     visualize = Boolean(settings.widget && settings.mode !== "off" && (settings.mode === "all" || visual.playing));
@@ -86,5 +87,5 @@ $("seek").addEventListener("input", () => { draggingSeek = true; $("elapsed").te
 $("seek").addEventListener("change", () => { draggingSeek = false; control("seek", Number($("seek").value)); });
 $("cover").addEventListener("error", () => { $("cover").hidden = true; $("coverFallback").hidden = false; });
 function frame(now) { if (visualize && now - lastFrame > 33) { spectrum.draw(now); lastFrame = now; } frameId = requestAnimationFrame(frame); }
-const timer = setInterval(sync, 80); void sync(); frameId = requestAnimationFrame(frame);
+const timer = setInterval(sync, 150); void sync(); frameId = requestAnimationFrame(frame);
 window.addEventListener("beforeunload", () => { clearInterval(timer); cancelAnimationFrame(frameId); });

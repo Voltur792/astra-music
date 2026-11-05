@@ -432,3 +432,9 @@ button.danger { color: var(--color-negative, #ff6b6b); }
   #spotifyStatus { white-space: normal; max-width: 100%; }
   #spotifySearchForm button { width: 100%; }
 }
+.bar-tools { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.music-tab-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px; margin: 18px 0 0; border: 1px solid var(--rim); border-radius: 14px; background: var(--surface); }
+.music-tab-row .music-tabs { display: contents; }
+.music-tab-row #musicSupport { display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px; border-radius: 10px; font: inherit; font-weight: 650; background: transparent; box-shadow: none; }
+.music-tab-row #musicSupport:hover { background: var(--hover); }
+.music-tab-row #musicSupport:focus-visible { box-shadow: var(--focus); }

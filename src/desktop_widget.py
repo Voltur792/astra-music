@@ -11,7 +11,7 @@ from pathlib import Path
 
 log = logging.getLogger("astra-music.desktop")
 WIDTH, HEIGHT = 360, 160
-WINDOW_BACKGROUND_COLOR = "#291b42"
+WINDOW_BACKGROUND_COLOR = "#18181b"
 DEFAULTS = {"enabled": False, "on_top": False, "transparency": 0, "x": None, "y": None}
 
 
@@ -243,7 +243,7 @@ class DesktopWidget:
 
 
 def main():
-    import urllib.request
+    from .loopback_http import client
     from .platform_support import webview_gui
     gui = webview_gui()
     import webview
@@ -260,14 +260,17 @@ def main():
     position = [options.get("x"), options.get("y")]
 
     def call(method, params=None):
-        request = urllib.request.Request(base + "/api", json.dumps({"method": method, "params": params or {}}).encode(),
-                                         {"Content-Type": "application/json"})
-        # Loopback must never go through a system HTTP proxy.
-        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=3) as response:
-            return json.load(response)
+        response = client().post(base + "/api", json={"method": method, "params": params or {}}, timeout=3)
+        response.raise_for_status()
+        return response.json()
 
     x, y = visible_position(options, webview.screens)
+    class WidgetApi:
+        def queue_anchor(self):
+            return {"x": window.x, "y": window.y, "height": HEIGHT, "on_top": options["on_top"]}
+
     window = webview.create_window("Astra Music", base + "/desktop-widget.html",
+                                   js_api=WidgetApi(),
                                    width=WIDTH, height=HEIGHT, x=x, y=y,
                                    resizable=False, frameless=sys.platform == "win32", easy_drag=False, shadow=False,
                                    on_top=options["on_top"], background_color=WINDOW_BACKGROUND_COLOR,

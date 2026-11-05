@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="player-v12.css">
   <link rel="stylesheet" href="desktop-widget.css">
   <title>Astra Music — рабочий стол</title>
+  <link rel="stylesheet" href="widget-theme.css">
+  <script src="widget-theme.js"></script>
 </head>
 <body>
   <div class="player" role="group" aria-label="Музыкальный плеер Astra">
@@ -14,7 +16,7 @@
     <div class="cover-wrap">
       <img id="cover" alt="Обложка трека" hidden>
       <span id="coverFallback" aria-hidden="true">♫</span>
-    </div>
+  </div>
     <div class="track pywebview-drag-region" title="Перетащите виджет за название трека">
       <strong id="title">Подключаю плеер Astra…</strong>
       <span id="artist">Яндекс Музыка</span>
@@ -36,6 +38,7 @@
       <button id="play" class="primary" type="button" aria-label="Воспроизвести" title="Воспроизвести / пауза" disabled><span class="glyph glyph-play">▶</span></button>
       <button id="next" type="button" aria-label="Следующий трек" title="Следующий" disabled><span class="glyph glyph-skip">⏭</span></button>
       <button id="stop" type="button" aria-label="Остановить" title="Остановить" disabled><span class="glyph">■</span></button>
+      <button id="queueToggle" type="button" aria-label="Показать очередь" title="Очередь воспроизведения" aria-haspopup="dialog"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h10M4 18h10m4-4 4 3-4 3z"/></svg></button>
     </div>
     <div id="notice" class="notice" aria-live="polite"></div>
   </div>
@@ -43,6 +46,7 @@
   <script src="audio-spectrum.js?v=2"></script>
   
   <script src="player-remote.js"></script>
+  <script src="queue.js"></script>
 </body>
 </html>
 

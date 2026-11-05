@@ -4,7 +4,6 @@ let settings = { mode: "music", widget: true, background: false, style: "waves",
 let playing = false;
 let pending = false;
 let frameId;
-let layerValue = null;
 function parse(value) {
   for (let i = 0; i < 3 && typeof value === "string"; i++) {
     try { value = JSON.parse(value); } catch (_) { return {}; }
@@ -12,17 +11,6 @@ function parse(value) {
   return value || {};
 }
 function enabled() { return settings.background && settings.mode !== "off" && (settings.mode === "all" || playing); }
-async function syncLayer(active = enabled()) {
-  const value = active ? "2" : "-1";
-  if (value === layerValue || !window.astra?.setCssVariable) return;
-  // Astra's wallpaper is at 1. Its page content is a later sibling at 2,
-  // so the effect sits over the wallpaper without covering chat or controls.
-  await window.astra.setCssVariable("--z-behind", value);
-  // Astra's full-window chat panel blurs every layer underneath it, even
-  // outside message bubbles. Remove that blur only while this wallpaper is on.
-  await window.astra.setCssVariable("--blur-surface", active ? "none" : "");
-  layerValue = value;
-}
 async function sync() {
   if (pending || !window.astra?.callBackend) return;
   pending = true;
@@ -33,7 +21,6 @@ async function sync() {
     playing = Boolean(state.playing);
     spectrum.setOptions(settings);
     canvas.hidden = !enabled();
-    await syncLayer();
     if (previousMode !== settings.mode || !enabled()) spectrum.clear();
     if (enabled()) {
       if (state.bands?.length) spectrum.sample(state.bands);
@@ -43,7 +30,6 @@ async function sync() {
     playing = false;
     spectrum.clear();
     canvas.hidden = true;
-    await syncLayer(false).catch(() => {});
   } finally { pending = false; }
 }
 const timer = setInterval(sync, 80);
@@ -57,5 +43,4 @@ frameId = requestAnimationFrame(frame);
 window.addEventListener("beforeunload", () => {
   clearInterval(timer);
   cancelAnimationFrame(frameId);
-  void syncLayer(false);
 });

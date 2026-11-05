@@ -6,8 +6,10 @@
 <title>Музыка</title>
 <!-- The bridge must load first and in <head>: it installs Astra's real
      stylesheet, so the tokens below exist before the first paint. -->
-<script src="http://astra-plugin.localhost/bridge/astra-bridge.js"></script>
+<script src="page-bridge.js"></script>
 <link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="theme-settings.css">
+<script src="widget-theme.js"></script>
 </head>
 <body>
 <!-- Astra's iframe has no intrinsic height: the root must be absolutely
@@ -15,7 +17,7 @@
 <main id="app">
   <header class="bar">
     <div class="music-heading"><span class="music-icon" aria-hidden="true">♫</span><div><h1>Astra Music</h1><p class="hint">Ваша музыка, плейлисты и радиоведущая Astra</p></div></div>
-    <span id="status" class="pill" role="status">загрузка…</span>
+    <div class="bar-tools"><span id="status" class="pill" role="status">загрузка…</span></div>
   </header>
 
   <div class="scroll">
@@ -26,11 +28,14 @@
       Если поток VK недоступен, откройте трек на странице VK.
     </p>
 
+    <div class="music-tab-row">
     <nav class="music-tabs" role="tablist" aria-label="Разделы Astra Music">
       <button type="button" role="tab" id="musicTabLibrary" aria-controls="musicPanelLibrary" aria-selected="true" data-music-tab="library">Музыка</button>
       <button type="button" role="tab" id="musicTabConnections" aria-controls="musicPanelConnections" aria-selected="false" tabindex="-1" data-music-tab="connections">Подключения</button>
       <button type="button" role="tab" id="musicTabSettings" aria-controls="musicPanelSettings" aria-selected="false" tabindex="-1" data-music-tab="settings">Настройки</button>
     </nav>
+    <button type="button" id="musicSupport" title="Открыть помощь и поддержку на GitHub"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 .3c0 1.7-2.5 1.9-2.5 3.7m0 3v1"/></svg>Помощь / поддержка</button>
+    </div>
     <div id="musicPanelConnections" role="tabpanel" aria-labelledby="musicTabConnections" data-music-panel="connections" hidden>
     <section class="card" aria-label="Подключение сервисов">
       <h2>Подключение</h2>
@@ -164,6 +169,22 @@
       <p class="hint">0% — непрозрачный; 80% — почти прозрачный. Применяется ко всему виджету.</p>
       <button type="button" id="desktopWidgetReset" disabled>Вернуть виджет на экран</button>
       <p id="desktopWidgetStatus" class="hint" role="status">Загрузка настроек…</p>
+      <div class="widget-theme-settings" aria-labelledby="widgetThemeHeading">
+        <h3 id="widgetThemeHeading">Цвета виджетов и очереди</h3>
+        <div class="visualizer-mode" role="group" aria-label="Оформление виджета">
+          <button type="button" data-widget-theme="provider" aria-pressed="true" disabled>Цвета сервиса</button>
+          <button type="button" data-widget-theme="custom" aria-pressed="false" disabled>Свои цвета</button>
+        </div>
+        <p class="hint">Яндекс — жёлтый и чёрный, VK — синий, Spotify — зелёный.</p>
+        <div class="visualizer-colors">
+          <label>Фон <input type="color" id="widgetThemeBackground" value="#18181b" disabled></label>
+          <label>Кнопки и акценты <input type="color" id="widgetThemeAccent" value="#ffcc00" disabled></label>
+        </div>
+        <div id="widgetThemePreview" class="theme-preview" aria-label="Предпросмотр цветов">
+          <span>Музыкальный плеер</span><span class="theme-sample-button" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m8 5 11 7-11 7z"/></svg></span>
+        </div>
+        <p id="widgetThemeStatus" class="hint" role="status">Загрузка цветов…</p>
+      </div>
     </section>
     <details class="card external-player-settings">
       <summary>Внешний плеер — дополнительные настройки</summary><div class="external-player-body">
@@ -196,5 +217,6 @@
 <script src="visualizer-settings.js?v=2"></script>
 <script src="desktop-settings.js"></script>
 <script src="spotify-settings.js?v=5"></script>
+<script src="theme-settings.js"></script>
 </body>
 </html>

@@ -47,12 +47,12 @@
   const $ = (id) => document.getElementById(id);
 
   function parseResult(result) {
-    if (typeof result === "string") {
-      try {
-        return JSON.parse(result);
-      } catch (_) {
-        return { message: result };
-      }
+    for (let n = 0; n < 6; n++) {
+      if (typeof result === "string") {
+        try { result = JSON.parse(result); }
+        catch (_) { return { message: result }; }
+      } else if (result && typeof result.result_json === "string") result = result.result_json;
+      else break;
     }
     return result || {};
   }
@@ -965,6 +965,16 @@
     searchTracks();
   });
   $("searchBtn").addEventListener("click", searchTracks);
+  $("musicSupport").addEventListener("click", async () => {
+    const button = $("musicSupport");
+    button.disabled = true;
+    try {
+      const result = await callBackend("music_support_open");
+      if (result.error || !result.success) throw new Error(result.error || "Не удалось открыть поддержку.");
+      message("Страница поддержки открыта в браузере.", "good");
+    } catch (error) { message(error.message, "bad"); }
+    finally { button.disabled = false; }
+  });
   $("query").addEventListener("input", persistUiState);
   $("playlistBtn").addEventListener("click", loadPlaylists);
   $("services").replaceChildren(...SERVICES.map(serviceCard));
