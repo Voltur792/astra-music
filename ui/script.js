@@ -21,14 +21,9 @@
     { id: "vk", label: "VK Музыка", token: "VK API-токен (необязательно, старый способ)", extra: [] },
   ];
 
-  const MODES = [
-    { id: "auto", label: "Авто" },
-    { id: "desktop", label: "Только приложение" },
-    { id: "browser", label: "Только браузер" },
-  ];
   const SEARCH_SERVICES = [...SERVICES, {id:'spotify', label:'Spotify'}];
 
-  const state = { service: "yandex", mode: "auto", status: {}, tracks: [], selectedTrack: null };
+  const state = { service: "yandex", status: {}, tracks: [], selectedTrack: null };
   let spotifyConnected = false;
   function renderConnectionSummary() {
     const count = SERVICES.filter(service => state.status[service.id]?.configured).length + Number(spotifyConnected);
@@ -520,13 +515,6 @@
     const result = await callBackend("music_connection_status");
     if (result.error) throw new Error(result.error);
     state.status = result.services || {};
-    if (result.open_mode) {
-      state.mode = result.open_mode;
-      modeDropdown.set(result.open_mode);
-    }
-    $("desktop").textContent = result.desktop_player
-      ? "Приложение Яндекс Музыки найдено: " + result.desktop_player
-      : "Приложение Яндекс Музыки не найдено — треки будут открываться в браузере.";
     document.querySelectorAll(".service").forEach((card) => {
       const info = state.status[card.dataset.service] || {};
       const isVk = card.dataset.service === "vk";
@@ -949,16 +937,6 @@
   });
   $("radioBtn").disabled = state.service !== "yandex";
   $("radioBtn").addEventListener("click", playYandexRadioInline);
-
-  const modeDropdown = dropdown($("modeTrigger"), $("modeMenu"), MODES, state.mode, (id) => {
-    state.mode = id;
-    callBackend("music_set_open_mode", { mode: id })
-      .then((result) => {
-        if (result.error) throw new Error(result.error);
-        message("Треки будут открываться так: " + id, "good");
-      })
-      .catch((error) => message(error.message, "bad"));
-  });
 
   $("searchForm").addEventListener("submit", (event) => {
     event.preventDefault();

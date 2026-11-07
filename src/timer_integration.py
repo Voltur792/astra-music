@@ -7,7 +7,8 @@ import json
 import os
 import secrets
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
+from .local_http import LocalRequestHandler
 from pathlib import Path
 import httpx
 from .loopback_http import client
@@ -32,7 +33,8 @@ class IntegrationServer:
             return
         owner = self
 
-        class Handler(BaseHTTPRequestHandler):
+        class Handler(LocalRequestHandler):
+            connection_role = "integration"
             protocol_version = "HTTP/1.1"
 
             def setup(self):

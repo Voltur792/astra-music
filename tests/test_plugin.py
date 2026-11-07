@@ -388,11 +388,11 @@ def test_play_track_requests_embedded_widget_playback(plugin_with_fake_client):
     assert plugin_with_fake_client._playback_state["command"] == "play"
 
 
-def test_open_mode_browser_wins_over_desktop(plugin_with_fake_client, monkeypatch):
+def test_open_track_falls_back_to_browser_when_app_unavailable(plugin_with_fake_client, monkeypatch):
     monkeypatch.setattr(P, "desktop_player_exe", lambda service: r"C:\app\Яндекс Музыка.exe")
-    monkeypatch.setattr(P, "open_in_desktop_player", lambda service, link: pytest.fail("режим — браузер"))
+    monkeypatch.setattr(P, "open_in_desktop_player", lambda service, link: False)
     monkeypatch.setattr(P, "open_in_browser", lambda url: True)
-    plugin_with_fake_client._set_open_mode_sync("browser")
+    plugin_with_fake_client._write_settings({"open_mode": "desktop"})
     result = plugin_with_fake_client._open_sync(
         plugin_with_fake_client._args("", service="yandex", track_id="51", url="https://music.yandex.ru/track/51")
     )
@@ -405,24 +405,17 @@ def test_yandex_playback_is_only_reported_after_widget_confirms_it(plugin_with_f
     assert result["playing"] is False
 
 
-def test_open_mode_rejects_nonsense(plugin_with_fake_client):
-    assert "Режим открытия" in plugin_with_fake_client._set_open_mode_sync("floppy")["error"]
 
-
-def test_status_for_the_tab_carries_account_and_desktop_player(plugin_with_fake_client, monkeypatch):
+def test_status_for_the_tab_carries_account_without_legacy_player_settings(plugin_with_fake_client, monkeypatch):
     monkeypatch.setattr(P, "desktop_player_exe", lambda service: r"C:\app\Яндекс Музыка.exe")
     plugin_with_fake_client._write_settings({"yandex": {"token": "***", "account": "maksim", "subscription": "plus"}})
     full = plugin_with_fake_client._connection_status_sync(full=True)
     brief = plugin_with_fake_client._connection_status_sync()
     assert full["services"]["yandex"]["subscription"] == "plus"
-    assert full["desktop_player"].endswith("Яндекс Музыка.exe")
+    assert "desktop_player" not in full and "open_mode" not in full
     # Инструмент модели не должен таскать локальные пути и имена аккаунтов.
     assert "desktop_player" not in brief and "account" not in brief["services"]["yandex"]
 
-
-def test_status_line_survives_a_missing_desktop_player(plugin_with_fake_client, monkeypatch):
-    monkeypatch.setattr(P, "desktop_player_exe", lambda service: None)
-    assert plugin_with_fake_client._connection_status_sync(full=True)["desktop_player"] == ""
 
 
 # --- tools and UI calls through the real servicer ---------------------------

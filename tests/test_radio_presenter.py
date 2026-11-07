@@ -87,11 +87,11 @@ def test_end_link_waits_for_actual_progress_and_ignores_stream_refresh():
     radio.observe(track(1, duration_seconds=200), settings)
     radio.observe(track(2, duration_seconds=200), settings)
     assert radio.observe(track(3, duration_seconds=200, position_seconds=0), settings) is None
-    assert radio.observe(track(3, duration_seconds=200, position_seconds=169, revision=10), settings) is None
-    result = radio.observe(track(3, duration_seconds=200, position_seconds=170, revision=10), settings)
+    assert radio.observe(track(3, duration_seconds=200, position_seconds=179, revision=10), settings) is None
+    result = radio.observe(track(3, duration_seconds=200, position_seconds=180, revision=10), settings)
     assert result["radio_when"] == "end"
     assert "заканчивается" in radio_prompt(result)
-    assert radio.observe(track(3, duration_seconds=200, position_seconds=171), settings) is None
+    assert radio.observe(track(3, duration_seconds=200, position_seconds=181), settings) is None
 
 
 def test_permission_failure_is_visible_and_monitor_keeps_counting():
@@ -110,7 +110,7 @@ def test_permission_failure_is_visible_and_monitor_keeps_counting():
             await radio.tick()
         assert radio.speech is None
         assert "Песня 3 из 3" in radio.progress
-        plugin._playback_state["position_seconds"] = 70
+        plugin._playback_state["position_seconds"] = 80
         await radio.tick()
         await radio.speech
         assert "не разрешила" in radio.message and "перезапустите" in radio.message

@@ -434,6 +434,10 @@ class SpotifyBrowser:
                     p._playback_volume = max(0, min(1, finite(raw["volume"], p._playback_volume)))
                 previous["volume"] = p._playback_volume
 
+        keys = getattr(getattr(p, "_audio_host", None), "media_keys", None)
+        if keys and any(keys.bindings.values()):
+            keys.start()
+
     def peek_next(self):
         """Read Spotify's ordered queue; never infer order from a playlist."""
         from .radio_presenter import track_metadata

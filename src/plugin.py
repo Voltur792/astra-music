@@ -849,7 +849,6 @@ def open_in_desktop_player(service: str, deep_link: str) -> bool:
         return False
 
 
-OPEN_MODES = ("auto", "desktop", "browser")
 
 
 def _data_dir() -> Path:
@@ -883,6 +882,8 @@ class AstraMusic(Plugin):
         from .discord_music import DiscordSource
         self._discord_music = DiscordSource(self)
         self._desktop_widget = DesktopWidget(self)
+        from .screen_color import ScreenColorPicker
+        self._screen_color = ScreenColorPicker()
         from .widget_theme import normalize_theme
         self._widget_theme = normalize_theme(self._read_settings().get("widget_theme"))
         self._spotify = SpotifyBrowser(self)
@@ -1057,7 +1058,15 @@ class AstraMusic(Plugin):
             state = states.get(int(raw_state), "")
         else:
             state = str(raw_state or "").upper().replace("CORE_STATE_", "").split(".")[-1]
-        log.info("Astra core state event: %s; player status: %s", state or "unknown", self._playback_state.get("status"))
+        if state not in set(states.values()):
+            if not getattr(self, "_unknown_core_state_reported", False):
+                self._unknown_core_state_reported = True
+                fields = ", ".join(sorted(str(key) for key in event)[:8])[:160] or "none"
+                log.warning("Unrecognized Astra core state event; fields=%s (reported once; event values omitted)", fields)
+            return
+        if state != getattr(self, "_last_core_state_logged", None):
+            self._last_core_state_logged = state
+            log.info("Astra core state event: %s; player status: %s", state, self._playback_state.get("status"))
         if state in {"LISTENING", "PROCESSING", "SPEAKING"}:
             self._set_music_ducked(True, "core")
         elif state in {"READY", "STOPPED", "ERROR"}:
@@ -1618,13 +1627,12 @@ class AstraMusic(Plugin):
             result["opened"] = False
             result["playing"] = True
             return result
-        mode = str(self._read_settings().get("open_mode") or "auto").lower()
         deep_link = str(result.get("deep_link") or "")
         url = str(result.get("url") or "")
         via = ""
-        if mode in ("auto", "desktop") and deep_link and open_in_desktop_player(service, deep_link):
+        if deep_link and open_in_desktop_player(service, deep_link):
             via = "desktop"
-        elif mode in ("auto", "browser") and url and open_in_browser(url):
+        elif url and open_in_browser(url):
             via = "browser"
         result["opened"] = bool(via)
         result["opened_via"] = via
@@ -2838,18 +2846,7 @@ class AstraMusic(Plugin):
                 entry = settings.get(service) or {}
                 info["account"] = entry.get("account", "")
                 info["subscription"] = entry.get("subscription", "")
-            status["open_mode"] = str(settings.get("open_mode") or "auto")
-            status["desktop_player"] = desktop_player_exe("yandex") or ""
         return status
-
-    def _set_open_mode_sync(self, mode: Any) -> dict[str, Any]:
-        mode = str(mode or "").strip().lower()
-        if mode not in OPEN_MODES:
-            return {"error": "Режим открытия: " + ", ".join(sorted(OPEN_MODES))}
-        settings = self._read_settings()
-        settings["open_mode"] = mode
-        self._write_settings(settings)
-        return {"success": True, "open_mode": mode, "desktop_player": desktop_player_exe("yandex") or ""}
 
     # --- tools -------------------------------------------------------------
 
@@ -3301,6 +3298,31 @@ class AstraMusic(Plugin):
     async def ui_widget_theme_get(self, **params: Any) -> dict[str, Any]:
         return dict(self._widget_theme)
 
+    @ui_call("music_hotkeys")
+    async def ui_hotkeys(self, **params: Any) -> dict[str, Any]:
+        keys = self._audio_host.media_keys
+        operation = params.get("operation", "get")
+        try:
+            if operation == "get":
+                return keys.snapshot()
+            if operation == "start":
+                return keys.capture_start(params.get("action"))
+            if operation in ("poll", "cancel"):
+                return await asyncio.to_thread(keys.capture_poll, params.get("session"), operation == "cancel")
+            if operation == "reset":
+                return await asyncio.to_thread(keys.save, params.get("action"), None)
+            return {"error": "Неизвестная команда настройки клавиш."}
+        except (ValueError, OSError) as error:
+            return {"error": str(error)}
+
+    @ui_call("music_screen_color")
+    async def ui_screen_color(self, **params: Any) -> dict[str, Any]:
+        action = params.get("action", "start")
+        if action not in ("start", "poll", "cancel"):
+            return {"error": "Неизвестная команда пипетки."}
+        return await asyncio.to_thread(self._screen_color.request, action, params.get("session", ""),
+                                       params.get("mode", "screen"), params.get("initial", "#000000"))
+
     @ui_call("music_widget_theme_set")
     async def ui_widget_theme_set(self, **params: Any) -> dict[str, Any]:
         from .widget_theme import normalize_theme
@@ -3422,10 +3444,6 @@ class AstraMusic(Plugin):
     @ui_call("music_connection_status")
     async def ui_connection_status(self, **params: Any) -> dict[str, Any]:
         return await self._guarded(self._connection_status_sync, True)
-
-    @ui_call("music_set_open_mode")
-    async def ui_set_open_mode(self, **params: Any) -> dict[str, Any]:
-        return await self._guarded(self._set_open_mode_sync, params.get("mode", ""))
 
     @ui_call("music_test_connection")
     async def ui_test_connection(self, **params: Any) -> dict[str, Any]:
@@ -3886,6 +3904,7 @@ class AstraMusic(Plugin):
         )
 
     async def on_shutdown(self) -> None:
+        await asyncio.to_thread(self._screen_color.close)
         await self._presenter.close()
         self._spotify.close()
         self._discord_music.stop(self._discord_music.session)

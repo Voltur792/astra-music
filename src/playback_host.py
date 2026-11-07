@@ -12,7 +12,8 @@ import re
 import time
 import logging
 import httpx
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
+from .local_http import LocalRequestHandler
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -64,6 +65,8 @@ def find_edge_browser():
 class PlaybackHost:
     def __init__(self, plugin):
         self.plugin = plugin
+        from .media_keys import MediaKeys
+        self.media_keys = MediaKeys(plugin)
         self.enabled = sys.platform in ("win32", "linux", "darwin") and os.environ.get("ASTRA_MUSIC_NATIVE_PLAYER") != "0"
         self.server = None
         self.process = None
@@ -84,7 +87,8 @@ class PlaybackHost:
     def _ensure_server_locked(self):
         if self.server is None:
             host = self
-            class Handler(BaseHTTPRequestHandler):
+            class Handler(LocalRequestHandler):
+                connection_role = "player"
                 protocol_version = "HTTP/1.1"
                 def log_message(self, *args):
                     pass
@@ -193,6 +197,8 @@ class PlaybackHost:
                         if request.get("method") == "music_audio_host_ping":
                             host.last_page_ping = time.monotonic()
                             host.recovery_attempts = 0
+                            if host.process and host.process.poll() is None:
+                                host.media_keys.start()
                             result = {"ok": True}
                         else:
                             method = methods.get(request.get("method"))
@@ -287,6 +293,7 @@ class PlaybackHost:
             threading.Thread(target=watch_process, daemon=True, name="music-player-watch").start()
 
     def close(self):
+        self.media_keys.close()
         self.closing = True
         if self.process and self.process.poll() is None:
             self.process.terminate()

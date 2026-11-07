@@ -133,7 +133,7 @@ class RadioPresenter:
         self.progress = ("Подводки переданы Discord-плагину." if routed else "Радиоведущая выключена." if not enabled else
                          "Жду воспроизведения песни." if not self.count else
                          f"Песня {(self.count - 1) % settings['every'] + 1} из {settings['every']} · "
-                         + ("подводка в начале песни" if settings.get("when") == "start" else "подводка за 30 секунд до конца"))
+                         + ("подводка в начале песни" if settings.get("when") == "start" else "подводка за 20 секунд до конца"))
         key = (track.get("service"), track.get("track_id") or track.get("title"), track.get("queue_index", -1))
         if not enabled or track.get("status") != "playing" or not track.get("title"):
             self.cancel()
@@ -144,13 +144,13 @@ class RadioPresenter:
             self.count += 1
             self.pending = key if self.count % settings["every"] == 0 else None
             self.progress = (f"Песня {(self.count - 1) % settings['every'] + 1} из {settings['every']} · "
-                             + ("подводка в начале песни" if settings.get("when") == "start" else "подводка за 30 секунд до конца"))
+                             + ("подводка в начале песни" if settings.get("when") == "start" else "подводка за 20 секунд до конца"))
         if self.pending != key:
             return None
         position = float(track.get("position_seconds") or 0)
         duration = float(track.get("duration_seconds") or 0)
         when = settings.get("when", "end")
-        if when == "end" and duration > 0 and position < max(0, duration - 30):
+        if when == "end" and duration > 0 and position < max(0, duration - 20):
             return None
         self.pending = None
         if when == "start" and position > 30:

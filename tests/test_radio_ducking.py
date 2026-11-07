@@ -21,6 +21,25 @@ def player(tmp_path, monkeypatch, service="vk", volume=.7):
     return plugin
 
 
+def test_unknown_core_event_is_reported_once_without_values_and_known_states_still_duck(tmp_path, monkeypatch, caplog):
+    import logging
+    plugin = player(tmp_path, monkeypatch)
+    async def run():
+        with caplog.at_level(logging.INFO, logger="astra-music"):
+            for _ in range(5):
+                await plugin.on_state_changed({"payload": "PRIVATE_EVENT_VALUE"})
+            assert plugin._playback_volume == .7
+            await plugin.on_state_changed({"new_state": "LISTENING"})
+            await plugin.on_state_changed({"new_state": "LISTENING"})
+            assert plugin._playback_volume == .1
+            await plugin.on_state_changed({"new_state": "READY"})
+            assert plugin._playback_volume == .7
+    asyncio.run(run())
+    assert caplog.text.count("Unrecognized Astra core state event") == 1
+    assert caplog.text.count("Astra core state event: LISTENING") == 1
+    assert "fields=payload" in caplog.text and "PRIVATE_EVENT_VALUE" not in caplog.text
+
+
 @pytest.mark.parametrize("service", ["vk", "yandex", "spotify"])
 def test_radio_ducks_before_request_and_waits_for_voice_after_chat_done(tmp_path, monkeypatch, service):
     async def run():

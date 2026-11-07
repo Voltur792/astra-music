@@ -5,6 +5,7 @@
   function openTab(name, focus = false) {
     tabs.forEach(tab => { const active = tab.dataset.musicTab === name; tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1; if (active && focus) tab.focus(); });
     document.querySelectorAll('[data-music-panel]').forEach(panel => panel.hidden = panel.dataset.musicPanel !== name);
+    window.dispatchEvent(new CustomEvent('music-tab-change', {detail: name}));
   }
   tabs.forEach((tab, index) => {
     tab.addEventListener('click', () => openTab(tab.dataset.musicTab));

@@ -711,6 +711,17 @@ setInterval(() => {
     void report("progress");
   }
 }, 250);
+// Register on the persistent audio owner, not on disposable widget frames.
+const mediaActions = {nexttrack: "next", previoustrack: "previous", play: "play", pause: "pause", stop: "stop"};
+const registeredMediaActions = [];
+if (typeof navigator !== "undefined" && navigator.mediaSession) {
+  for (const [key, action] of Object.entries(mediaActions)) {
+    try {
+      navigator.mediaSession.setActionHandler(key, () => { void control(action); });
+      registeredMediaActions.push(key);
+    } catch (_) { /* Older engines can reject individual actions. */ }
+  }
+}
 const visualSettingsTimer = setInterval(syncVisualSettings, 750);
 const audioMeterTimer = setInterval(sampleLocalAudio, 40);
 const preloadTimer = setInterval(prepareNextAudio, 1000);
@@ -719,6 +730,7 @@ void syncVisualSettings();
 setInterval(sync, 600);
 sync();
 window.addEventListener("beforeunload", () => {
+  for (const key of registeredMediaActions) navigator.mediaSession.setActionHandler(key, null);
   discardPrepared();
   if (visualFrameId) cancelAnimationFrame(visualFrameId);
   clearInterval(visualSettingsTimer);

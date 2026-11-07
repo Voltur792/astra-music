@@ -9,6 +9,7 @@
 <script src="page-bridge.js"></script>
 <link rel="stylesheet" href="style.css?v=2">
 <link rel="stylesheet" href="theme-settings.css">
+<link rel="stylesheet" href="hotkeys-settings.css">
 <script src="widget-theme.js"></script>
 </head>
 <body>
@@ -32,7 +33,10 @@
     <nav class="music-tabs" role="tablist" aria-label="Разделы Astra Music">
       <button type="button" role="tab" id="musicTabLibrary" aria-controls="musicPanelLibrary" aria-selected="true" data-music-tab="library">Музыка</button>
       <button type="button" role="tab" id="musicTabConnections" aria-controls="musicPanelConnections" aria-selected="false" tabindex="-1" data-music-tab="connections">Подключения</button>
-      <button type="button" role="tab" id="musicTabSettings" aria-controls="musicPanelSettings" aria-selected="false" tabindex="-1" data-music-tab="settings">Настройки</button>
+      <button type="button" role="tab" id="musicTabRadio" aria-controls="musicPanelRadio" aria-selected="false" tabindex="-1" data-music-tab="radio">Радиоведущая</button>
+      <button type="button" role="tab" id="musicTabVisualizer" aria-controls="musicPanelVisualizer" aria-selected="false" tabindex="-1" data-music-tab="visualizer">Цветомузыка</button>
+      <button type="button" role="tab" id="musicTabWidgets" aria-controls="musicPanelWidgets" aria-selected="false" tabindex="-1" data-music-tab="widgets">Виджеты</button>
+      <button type="button" role="tab" id="musicTabHotkeys" aria-controls="musicPanelHotkeys" aria-selected="false" tabindex="-1" data-music-tab="hotkeys">Клавиши</button>
     </nav>
     <button type="button" id="musicSupport" title="Открыть помощь и поддержку на GitHub"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 .3c0 1.7-2.5 1.9-2.5 3.7m0 3v1"/></svg>Помощь / поддержка</button>
     </div>
@@ -101,7 +105,16 @@
     </section>
 
     </div>
-    <div id="musicPanelSettings" role="tabpanel" aria-labelledby="musicTabSettings" data-music-panel="settings" hidden>
+    <div id="musicPanelHotkeys" role="tabpanel" aria-labelledby="musicTabHotkeys" data-music-panel="hotkeys" hidden>
+    <section class="card hotkeys-settings" aria-labelledby="hotkeysHeading">
+      <h2 id="hotkeysHeading">Горячие клавиши</h2>
+      <p class="hint">Нажмите «Изменить», затем нужную клавишу или сочетание. Выбор сохранится автоматически. Esc — отмена.</p>
+      <div id="hotkeysRows" class="hotkeys-rows" aria-busy="true"></div>
+      <p class="hint">Свои сочетания работают в Windows для Яндекса, VK и подключённого плеера Spotify, даже когда Astra свёрнута. Сброс возвращает стандартные медиаклавиши.</p>
+      <div class="hotkeys-feedback"><p class="hint" id="hotkeysStatus" role="status">Загрузка клавиш…</p><button type="button" id="hotkeysCancel" hidden>Отменить запись</button><button type="button" id="hotkeysRetry" hidden>Повторить</button></div>
+    </section>
+    </div>
+    <div id="musicPanelRadio" role="tabpanel" aria-labelledby="musicTabRadio" data-music-panel="radio" hidden>
     <section class="card" id="radioSettings" aria-labelledby="radioHeading">
       <div class="section-heading"><h2 id="radioHeading">Astra — радиоведущая</h2><span class="pill" id="radioSaveStatus" role="status">Загрузка…</span></div>
       <p class="hint">Короткие подводки к песням с личностью и голосом, выбранными в Astra. Иногда ведущая добавляет рассказ о песне или исполнителе. Музыка на время речи становится тише.</p>
@@ -110,12 +123,14 @@
       <p class="hint">Когда очередь доступна, Astra представит следующую песню и может добавить короткий рассказ о ней. Если сервис её ещё не определил, подводка будет только о текущей.</p>
       <div class="radio-frequency"><span id="radioFrequencyLabel">Частота подводок</span><div class="visualizer-mode" role="group" aria-labelledby="radioFrequencyLabel"><button type="button" data-radio-every="1" aria-pressed="false" disabled>Каждую песню</button><button type="button" data-radio-every="3" aria-pressed="true" disabled>Раз в 3 песни</button><button type="button" data-radio-every="5" aria-pressed="false" disabled>Раз в 5 песен</button></div></div>
       <div class="radio-frequency"><span id="radioWhenLabel">Когда говорить</span><div class="visualizer-mode" role="group" aria-labelledby="radioWhenLabel"><button type="button" data-radio-when="start" aria-pressed="false" disabled>В начале песни</button><button type="button" data-radio-when="end" aria-pressed="true" disabled>В конце песни</button></div></div>
-      <p class="hint">В режиме «В конце» Astra начинает подводку за 30 секунд до завершения. Если сервис не сообщает длительность, подводка прозвучит в начале.</p>
+      <p class="hint">В режиме «В конце» Astra начинает подводку за 20 секунд до завершения. Если сервис не сообщает длительность, подводка прозвучит в начале.</p>
       <p class="hint">Настройки сохраняются автоматически. При передаче Spotify в Discord подводки озвучивает Discord-плагин, если режим включён и там.</p>
       <p class="hint" id="radioMessage" role="status"></p>
       <p class="hint" id="radioProgress" role="status"></p>
       <button type="button" id="radioRetry" hidden>Повторить сохранение</button>
     </section>
+    </div>
+    <div id="musicPanelVisualizer" role="tabpanel" aria-labelledby="musicTabVisualizer" data-music-panel="visualizer" hidden>
     <section class="card visualizer-settings" id="visualizerSettings" aria-labelledby="visualizerHeading">
       <div class="visualizer-heading">
         <h2 id="visualizerHeading">Цветомузыка</h2>
@@ -154,6 +169,8 @@
         </div>
       </fieldset>
     </section>
+    </div>
+    <div id="musicPanelWidgets" role="tabpanel" aria-labelledby="musicTabWidgets" data-music-panel="widgets" hidden>
     <section class="card" aria-labelledby="desktopWidgetHeading">
       <h2 id="desktopWidgetHeading">Виджет на рабочем столе</h2>
       <p class="hint">Отдельный музыкальный плеер Windows. Перетаскивайте за название трека — положение запоминается. Отключение виджета не останавливает музыку.</p>
@@ -186,21 +203,6 @@
         <p id="widgetThemeStatus" class="hint" role="status">Загрузка цветов…</p>
       </div>
     </section>
-    <details class="card external-player-settings">
-      <summary>Внешний плеер — дополнительные настройки</summary><div class="external-player-body">
-      <p class="hint">
-        Эта настройка относится к кнопке «Открыть». Для воспроизведения VK внутри Astra
-        подключите токен и локальную сессию в карточке сервиса выше.
-      </p>
-      <div class="picker" id="modePicker">
-        <button type="button" class="trigger" id="modeTrigger" aria-haspopup="listbox"
-                aria-expanded="false" aria-label="Куда отправлять трек">Авто</button>
-        <ul class="menu" id="modeMenu" role="listbox" aria-label="Куда отправлять трек" hidden></ul>
-      </div>
-      <div id="desktop" class="hint"></div>
-      </div>
-    </details>
-
     </div>
     <div id="linkBox" class="card link" hidden>
       <p class="hint">Ссылка не открылась сама — скопируйте её:</p>
@@ -218,5 +220,7 @@
 <script src="desktop-settings.js"></script>
 <script src="spotify-settings.js?v=5"></script>
 <script src="theme-settings.js"></script>
+<script src="screen-color.js"></script>
+<script src="hotkeys-settings.js"></script>
 </body>
 </html>
