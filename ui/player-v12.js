@@ -299,7 +299,7 @@ cover.addEventListener("load", () => {
 });
 
 function updateProgress() {
-  const duration = Number.isFinite(audio.duration) ? audio.duration : Number(current?.duration_seconds || 0);
+  const duration = current?.live ? 0 : Number.isFinite(audio.duration) ? audio.duration : Number(current?.duration_seconds || 0);
   const position = Number.isFinite(audio.currentTime) ? audio.currentTime : Number(current?.position_seconds || 0);
   if (duration > 0) {
     seekSlider.max = String(duration);
@@ -310,7 +310,8 @@ function updateProgress() {
   }
   seekSlider.disabled = !current || duration <= 0;
   elapsedLabel.textContent = formatTime(position);
-  durationLabel.textContent = formatTime(duration);
+  durationLabel.textContent = current?.live ? "ЭФИР" : formatTime(duration);
+  if (current?.live) seekSlider.disabled = true;
 }
 
 function updateTrackControls(state) {
@@ -323,14 +324,14 @@ function updateTrackControls(state) {
   nextButton.disabled = !current || (!radio && (count < 2 || index >= count - 1));
   nextButton.disabled = nextButton.disabled || queueControlPending;
   previousButton.disabled = previousButton.disabled || queueControlPending;
-  likeButton.disabled = !current || current.service === "vk" || Boolean(state.liked) || likePending;
+  likeButton.disabled = !current || ["vk", "internet_radio"].includes(current.service) || Boolean(state.liked) || likePending;
   likeGlyph.textContent = state.liked ? "♥" : "♡";
   likeButton.classList.toggle("liked", Boolean(state.liked));
   likeButton.setAttribute("aria-label", state.liked ? "Трек в понравившихся" : "Добавить в понравившиеся");
   likeButton.title = state.liked ? "Трек в понравившихся" : "Добавить в понравившиеся";
   if (!volumeDragging) volumeSlider.value = String(Math.round(Math.max(0, Math.min(1, Number(state.volume ?? 0.8))) * 10));
   volumeValue.value = volumeSlider.value;
-  source.textContent = state.source === "radio"
+  source.textContent = state.service === "internet_radio" ? "Прямой эфир · " + state.source_title : state.source === "radio"
     ? (state.service === "vk" ? "VK Музыка · " : "Яндекс Музыка · ") + (state.source_title || "Радио")
     : state.source === "playlist"
       ? `Плейлист · ${state.source_title || (state.service === "vk" ? "VK Музыка" : "Яндекс Музыка")} · ${index + 1}/${count}`
@@ -371,7 +372,7 @@ function loadAudioSource(url) {
         const detail = String(data.details || data.type || "HlsError");
         if (!settled) {
           settled = true;
-          reject(new Error("VK-поток не загрузился: " + detail));
+          reject(new Error("Аудиопоток не загрузился: " + detail));
         }
         if (hls === instance) destroyHls();
         setNotice("Не удалось загрузить аудиопоток", true);

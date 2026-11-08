@@ -1,11 +1,14 @@
 """User-initiated screen picker, isolated from the daemon's UI call deadline."""
 import json
+import logging
 from pathlib import Path
 import secrets
 import subprocess
 import sys
 import time
 import threading
+
+logger = logging.getLogger("astra-music.colors")
 
 
 class ScreenColorPicker:
@@ -14,6 +17,7 @@ class ScreenColorPicker:
         self._process = None
         self._session = ""
         self._started = 0.0
+        self._mode = "screen"
 
     def close(self):
         with self._lock:
@@ -39,16 +43,18 @@ class ScreenColorPicker:
                 self._close()
                 self._session = secrets.token_urlsafe(24)
                 self._started = time.monotonic()
+                self._mode = mode
                 try:
                     self._process = subprocess.Popen(
-                        ["powershell.exe", "-NoProfile", "-NonInteractive", "-STA", "-WindowStyle", "Hidden",
-                         "-File", str(Path(__file__).with_name("screen-color.ps1")), "-Mode", mode, "-InitialColor", initial],
+                        [sys.executable, str(Path(__file__).with_name("screen_color_native.py")),
+                         "--mode", mode, "--initial", initial],
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                         creationflags=subprocess.CREATE_NO_WINDOW,
                     )
-                except OSError:
+                except OSError as error:
+                    logger.warning("Color picker launch failed: mode=%s code=%s", mode, error.winerror if hasattr(error, "winerror") else error.errno)
                     self._close()
-                    return {"error": "Не удалось запустить пипетку. Используйте палитру цвета."}
+                    return self._failure()
             elif not session or session != self._session:
                 return {"cancelled": True}
             if action == "cancel" or time.monotonic() - self._started > 65:
@@ -56,12 +62,20 @@ class ScreenColorPicker:
                 return {"cancelled": True}
             if self._process.poll() is None:
                 return {"pending": True, "session": self._session}
-            output, _ = self._process.communicate()
+            output, stderr = self._process.communicate()
             code = self._process.returncode
             self._process = None
             self._session = ""
             try:
                 result = json.loads(output.decode("utf-8-sig"))
+                if result.get("error"):
+                    stages = {"unsupported_platform", "pixel_read", "monitor", "cursor", "desktop_dc", "window", "window_proc", "color_dialog", "mouse_hook", "timer", "message_loop", "native_runtime"}
+                    stage = result.get("stage")
+                    native_code = result.get("code")
+                    logger.warning("Color picker failed: mode=%s stage=%s code=%s exit=%s", self._mode,
+                                   stage if isinstance(stage, str) and stage in stages else "unknown",
+                                   native_code if type(native_code) is int else 0, code)
+                    return self._failure()
                 color = result.get("color", "")
                 if isinstance(color, str) and len(color) == 7 and color[0] == "#" and all(c in "0123456789abcdefABCDEF" for c in color[1:]):
                     return {"color": color.lower()}
@@ -69,4 +83,9 @@ class ScreenColorPicker:
                     return {"cancelled": True}
             except (ValueError, AttributeError):
                 pass
-            return {"error": "Пипетка недоступна. Используйте палитру цвета."} if code or output else {"cancelled": True}
+            logger.warning("Color picker invalid response: mode=%s exit=%s stdout_bytes=%s stderr_bytes=%s", self._mode, code, len(output), len(stderr))
+            return self._failure()
+
+    def _failure(self):
+        label = "палитру" if self._mode == "palette" else "пипетку"
+        return {"error": f"Не удалось открыть {label}. Подробности записаны в журнал Astra."}

@@ -1,0 +1,10 @@
+.station-filters { flex-wrap: wrap; align-items: end; }
+.station-filters label { display: grid; gap: .35rem; flex: 1 1 11rem; }
+.station-filters label:first-child { flex: 3 1 16rem; }
+.station-row { display: flex; align-items: center; gap: .65rem; padding: .85rem 0; border-bottom: 1px solid var(--rim); }
+.station-info { display: grid; gap: .3rem; flex: 1; min-width: 0; }
+.station-info strong, .station-info span { overflow-wrap: anywhere; }
+.station-row button { flex-shrink: 0; }
+.station-custom { display: flex; flex-wrap: wrap; gap: .65rem; align-items: end; margin-top: .75rem; }
+.station-custom label { display: grid; gap: .35rem; flex: 1 1 14rem; }
+@media (max-width: 560px) { .station-row { flex-wrap: wrap; } .station-info { flex-basis: 100%; } }

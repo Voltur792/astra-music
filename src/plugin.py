@@ -29,6 +29,7 @@ from .desktop_widget import DesktopWidget
 from .spotify_browser import SpotifyBrowser
 from .radio_presenter import RadioPresenter, radio_settings
 from .yandex_playlist import playlist_reference
+from .music_extensions import MusicExtensions
 
 log = logging.getLogger("astra-music")
 
@@ -869,13 +870,14 @@ def _data_dir() -> Path:
     icon_svg=TAB_ICON_SVG,
 )
 @ui_effect("host-visualizer.js", id="music-visualizer", audio=True)
-class AstraMusic(Plugin):
+class AstraMusic(MusicExtensions, Plugin):
     """Astra plugin: music-controller."""
 
     def __init__(self):
         super().__init__()
         self.data_dir = _data_dir()
         self.settings_file = self.data_dir / "settings.json"
+        self._init_extensions()
         self.playback_selection_file = self.data_dir / "playback-selection.json"
         self._settings_lock = threading.Lock()
         self._audio_host = PlaybackHost(self)
@@ -2220,6 +2222,8 @@ class AstraMusic(Plugin):
             return self._spotify.control(action, value)
         if action == "stop":
             return self._stop_playback_sync()
+        if self._playback_state.get("service") == "internet_radio" and action in {"next", "previous", "ended", "seek", "forward", "backward", "like"}:
+            raise MusicError("Это прямой эфир: переключение песен, лайки и перемотка недоступны.")
         if action == "like":
             track_id = str(self._playback_state.get("track_id", ""))
             if not track_id:
@@ -3616,6 +3620,9 @@ class AstraMusic(Plugin):
         with self._playback_lock:
             service = str(self._playback_state.get("service") or "yandex")
             position = float(self._playback_state.get("position_seconds") or 0)
+        if service == "internet_radio":
+            result = await self._guarded(self._start_internet_radio, self._internet_radio_current)
+            return result
         if service == "vk":
             activate = self._activate_vk_queue_item_sync
         elif service == "yandex":
@@ -3735,7 +3742,7 @@ class AstraMusic(Plugin):
                 "revision", "service", "track_id", "title", "artist", "cover_url", "liked", "status", "playback_error", "position_seconds",
                 "duration_seconds", "volume", "queue_index", "queue_count",
                 "source", "source_title",
-                "can_next", "can_previous", "can_seek", "playback_message",
+                "can_next", "can_previous", "can_seek", "playback_message", "live",
             )
         }
 
@@ -3905,6 +3912,8 @@ class AstraMusic(Plugin):
 
     async def on_shutdown(self) -> None:
         await asyncio.to_thread(self._screen_color.close)
+        self._internet_radio.close()
+        self._radio_relay.close()
         await self._presenter.close()
         self._spotify.close()
         self._discord_music.stop(self._discord_music.session)

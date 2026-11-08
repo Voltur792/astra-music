@@ -135,7 +135,7 @@ class RadioPresenter:
                          f"Песня {(self.count - 1) % settings['every'] + 1} из {settings['every']} · "
                          + ("подводка в начале песни" if settings.get("when") == "start" else "подводка за 20 секунд до конца"))
         key = (track.get("service"), track.get("track_id") or track.get("title"), track.get("queue_index", -1))
-        if not enabled or track.get("status") != "playing" or not track.get("title"):
+        if not enabled or track.get("service") == "internet_radio" or track.get("status") != "playing" or not track.get("title"):
             self.cancel()
             return None
         if key != self.last_key:

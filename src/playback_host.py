@@ -98,6 +98,12 @@ class PlaybackHost:
                     if len(parts) < 3 or not secrets.compare_digest(parts[1], host.token):
                         self.send_error(403); return
                     name = "/".join(parts[2:])
+                    if name.startswith("radio-stream/"):
+                        match = re.fullmatch(r"radio-stream/(\d+)/([a-f0-9]{64})\.(?:m3u8|bin)", name)
+                        if not match:
+                            self.send_error(404); return
+                        host.plugin._radio_relay.serve(self, int(match[1]), match[2])
+                        return
                     if name.startswith("discord-stream/"):
                         match = re.fullmatch(r"discord-stream/(\d+)/(\d+)(?:\.(?:m3u8|ts|aac|mp4|m4s|key|bin))?", name)
                         if not match:
@@ -176,6 +182,9 @@ class PlaybackHost:
                         "music_spotify_job_status": host.plugin.ui_spotify_job_status,
                         "music_connection_status": host.plugin.ui_connection_status,
                         "music_search": host.plugin.ui_search,
+                        "music_stations_search": host.plugin.ui_stations_search,
+                        "music_stations_saved": host.plugin.ui_stations_saved,
+                        "music_stations_play": host.plugin.ui_stations_play,
                         "music_list_playlists": host.plugin.ui_list_playlists,
                         "music_list_playlist_tracks": host.plugin.ui_list_playlist_tracks,
                         "music_play_track": host.plugin.ui_play_track,

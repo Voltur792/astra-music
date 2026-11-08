@@ -35,15 +35,15 @@ function render() {
   $("play").setAttribute("aria-label", playing ? "Пауза" : "Воспроизвести");
   $("previous").disabled = !selected || (state.service === "spotify" ? !state.can_previous : Number(state.queue_index) <= 0);
   $("next").disabled = !selected || (state.service === "spotify" ? !state.can_next : state.source !== "radio" && Number(state.queue_index) >= Number(state.queue_count) - 1);
-  $("like").disabled = !selected || ["vk", "spotify"].includes(state.service) || state.liked;
+  $("like").disabled = !selected || ["vk", "spotify", "internet_radio"].includes(state.service) || state.liked;
   $("like").querySelector(".glyph").textContent = state.liked ? "♥" : "♡";
   $("like").classList.toggle("liked", Boolean(state.liked));
   if (!draggingVolume) $("volume").value = Math.round(Number(state.volume ?? .8) * 10);
   $("volumeValue").value = $("volume").value;
-  $("seek").disabled = !selected || !state.duration_seconds || (state.service === "spotify" && !state.can_seek);
+  $("seek").disabled = !selected || state.live || !state.duration_seconds || (state.service === "spotify" && !state.can_seek);
   $("seek").max = Math.max(1, Number(state.duration_seconds) || 1);
   if (!draggingSeek) $("seek").value = state.position_seconds || 0;
-  $("elapsed").textContent = time(state.position_seconds); $("duration").textContent = time(state.duration_seconds);
+  $("elapsed").textContent = time(state.position_seconds); $("duration").textContent = state.live ? "ЭФИР" : time(state.duration_seconds);
   if (state.status === "failed") {
     const message = state.playback_error === "EdgeNotFound" ? "Не найден Microsoft Edge для аудиоплеера."
       : ["AudioHostUnavailable", "AudioHostUnresponsive"].includes(state.playback_error) ? "Аудиоплеер не отвечает. Нажмите ▶ для перезапуска."

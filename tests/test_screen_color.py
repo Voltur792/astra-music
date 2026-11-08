@@ -23,7 +23,7 @@ class Worker:
 
 def test_picker_returns_immediately_and_only_owner_can_poll_or_cancel(monkeypatch):
     worker = Worker()
-    monkeypatch.setattr(picker_module, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(picker_module, "sys", SimpleNamespace(platform="win32", executable="python.exe"))
     monkeypatch.setattr(picker_module.subprocess, "Popen", lambda *args, **kwargs: worker)
     monkeypatch.setattr(picker_module.subprocess, "CREATE_NO_WINDOW", 0, raising=False)
     picker = ScreenColorPicker()
@@ -38,7 +38,7 @@ def test_picker_returns_immediately_and_only_owner_can_poll_or_cancel(monkeypatc
 
 
 def test_timeout_and_shutdown_reap_worker(monkeypatch):
-    monkeypatch.setattr(picker_module, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(picker_module, "sys", SimpleNamespace(platform="win32", executable="python.exe"))
     monkeypatch.setattr(picker_module.subprocess, "CREATE_NO_WINDOW", 0, raising=False)
     worker = Worker()
     monkeypatch.setattr(picker_module.subprocess, "Popen", lambda *args, **kwargs: worker)
@@ -61,7 +61,7 @@ def test_unsupported_platform_does_not_launch_process(monkeypatch):
 def test_palette_launches_with_current_color_and_rejects_invalid_arguments(monkeypatch):
     calls = []
     worker = Worker()
-    monkeypatch.setattr(picker_module, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(picker_module, "sys", SimpleNamespace(platform="win32", executable="python.exe"))
     monkeypatch.setattr(picker_module.subprocess, "CREATE_NO_WINDOW", 0, raising=False)
     def launch(args, **kwargs):
         calls.append(args)
@@ -72,5 +72,26 @@ def test_palette_launches_with_current_color_and_rejects_invalid_arguments(monke
     assert "error" in picker.request(mode="palette", initial="red;run")
     assert not calls
     assert picker.request(mode="palette", initial="#aAbBcC")["pending"]
-    assert calls[0][-4:] == ["-Mode", "palette", "-InitialColor", "#aAbBcC"]
+    assert calls[0][-4:] == ["--mode", "palette", "--initial", "#aAbBcC"]
+    assert calls[0][0] == "python.exe"
+    assert calls[0][1].endswith("screen_color_native.py")
     picker.close()
+
+
+def test_native_failure_logs_stage_and_code_without_private_output(monkeypatch, caplog):
+    worker = Worker(b'{"error":"native_picker_failed","stage":"mouse_hook","code":5}', 0)
+    monkeypatch.setattr(picker_module, "sys", SimpleNamespace(platform="win32", executable="python.exe"))
+    monkeypatch.setattr(picker_module.subprocess, "CREATE_NO_WINDOW", 0, raising=False)
+    monkeypatch.setattr(picker_module.subprocess, "Popen", lambda *args, **kwargs: worker)
+    assert "error" in ScreenColorPicker().request()
+    assert "stage=mouse_hook code=5" in caplog.text
+
+
+def test_palette_failure_does_not_recommend_same_broken_palette(monkeypatch):
+    worker = Worker(b'not json', 1)
+    monkeypatch.setattr(picker_module, "sys", SimpleNamespace(platform="win32", executable="python.exe"))
+    monkeypatch.setattr(picker_module.subprocess, "CREATE_NO_WINDOW", 0, raising=False)
+    monkeypatch.setattr(picker_module.subprocess, "Popen", lambda *args, **kwargs: worker)
+    result = ScreenColorPicker().request(mode="palette")
+    assert "палитру" in result["error"]
+    assert "Используйте" not in result["error"]

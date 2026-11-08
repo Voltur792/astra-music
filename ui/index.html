@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="style.css?v=2">
 <link rel="stylesheet" href="theme-settings.css">
 <link rel="stylesheet" href="hotkeys-settings.css">
+<link rel="stylesheet" href="internet-radio.css">
 <script src="widget-theme.js"></script>
 </head>
 <body>
@@ -32,6 +33,7 @@
     <div class="music-tab-row">
     <nav class="music-tabs" role="tablist" aria-label="Разделы Astra Music">
       <button type="button" role="tab" id="musicTabLibrary" aria-controls="musicPanelLibrary" aria-selected="true" data-music-tab="library">Музыка</button>
+      <button type="button" role="tab" id="musicTabStations" aria-controls="musicPanelStations" aria-selected="false" tabindex="-1" data-music-tab="stations">Радиостанции</button>
       <button type="button" role="tab" id="musicTabConnections" aria-controls="musicPanelConnections" aria-selected="false" tabindex="-1" data-music-tab="connections">Подключения</button>
       <button type="button" role="tab" id="musicTabRadio" aria-controls="musicPanelRadio" aria-selected="false" tabindex="-1" data-music-tab="radio">Радиоведущая</button>
       <button type="button" role="tab" id="musicTabVisualizer" aria-controls="musicPanelVisualizer" aria-selected="false" tabindex="-1" data-music-tab="visualizer">Цветомузыка</button>
@@ -39,6 +41,34 @@
       <button type="button" role="tab" id="musicTabHotkeys" aria-controls="musicPanelHotkeys" aria-selected="false" tabindex="-1" data-music-tab="hotkeys">Клавиши</button>
     </nav>
     <button type="button" id="musicSupport" title="Открыть помощь и поддержку на GitHub"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 .3c0 1.7-2.5 1.9-2.5 3.7m0 3v1"/></svg>Помощь / поддержка</button>
+    </div>
+    <div id="musicPanelStations" role="tabpanel" aria-labelledby="musicTabStations" data-music-panel="stations" hidden>
+      <section class="card" aria-labelledby="stationSavedHeading">
+        <h2 id="stationSavedHeading">Избранные станции</h2>
+        <div id="stationFavorites"></div>
+        <details><summary>Добавить свою станцию</summary>
+          <form id="stationCustom" class="station-custom">
+            <label>Название<input id="stationName" required maxlength="200" placeholder="Моя станция"></label>
+            <label>Адрес потока<input id="stationUrl" type="url" required maxlength="4096" placeholder="https://…/stream.m3u8"></label>
+            <button id="stationCustomSave" type="submit">Сохранить</button>
+          </form>
+          <p class="hint">Нужна прямая публичная ссылка на HLS (.m3u8), MP3 или AAC, а не адрес сайта станции.</p>
+        </details>
+      </section>
+      <section class="card" aria-labelledby="stationHeading">
+        <h2 id="stationHeading">Интернет-радио</h2>
+        <p class="hint">Станции со всего мира из открытого каталога Radio Browser. Аккаунт музыкального сервиса не нужен. Доступность эфира зависит от станции.</p>
+        <form id="stationForm" class="row station-filters">
+          <label>Название<input id="stationQuery" type="search" placeholder="Например, Radio Paradise" maxlength="100"></label>
+          <label>Страна<input id="stationCountry" type="text" placeholder="Все страны · RU, DE, US" maxlength="2" aria-describedby="stationFilterHelp"></label>
+          <label>Жанр<input id="stationGenre" type="search" placeholder="Все жанры · rock, jazz" maxlength="80"></label>
+          <button id="stationSearch" type="submit" class="primary">Найти</button>
+        </form>
+        <p id="stationFilterHelp" class="hint">Оставьте фильтры пустыми для популярных станций со всего мира. Код страны — две латинские буквы.</p>
+        <p id="stationMessage" class="hint" role="status" aria-live="polite">Откройте вкладку, чтобы загрузить каталог.</p>
+        <div id="stationResults"></div>
+        <button id="stationMore" type="button" hidden>Показать ещё</button>
+      </section>
     </div>
     <div id="musicPanelConnections" role="tabpanel" aria-labelledby="musicTabConnections" data-music-panel="connections" hidden>
     <section class="card" aria-label="Подключение сервисов">
@@ -222,5 +252,6 @@
 <script src="theme-settings.js"></script>
 <script src="screen-color.js"></script>
 <script src="hotkeys-settings.js"></script>
+<script src="internet-radio.js"></script>
 </body>
 </html>
