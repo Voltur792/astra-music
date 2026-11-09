@@ -1,0 +1,58 @@
+name: Сообщить о проблеме
+description: Сообщите об ошибке Astra Music или о проблеме с запуском.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Что произошло?
+      description: Укажите, чего вы ожидали, что случилось и примерно когда. Если есть сообщение об ошибке, приведите его текст.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как повторить проблему?
+      description: Перечислите действия до сбоя. Если проблема возникла один раз, опишите, что вы делали перед этим.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Музыкальный сервис
+      options:
+        - Яндекс Музыка
+        - VK Музыка
+        - Spotify
+        - Интернет-радио
+        - Другое или не относится к сервису
+
+  - type: input
+    id: os
+    attributes:
+      label: Операционная система и архитектура
+      placeholder: Windows 11 AMD64
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Версия Astra Music
+
+  - type: input
+    id: astra-version
+    attributes:
+      label: Версия Astra
+
+  - type: upload
+    id: logs
+    attributes:
+      label: Журналы и скриншоты
+      description: |
+        Приложите `music-controller.log` за время сбоя, если он доступен. Если плагин не запускается, приложите также журнал Astra `daemon.log.*` за день сбоя. Если GitHub не принимает расширение файла с датой, сохраните копию с расширением `.log`.
+
+        В Windows журналы находятся в `%APPDATA%\astra\astra\config\logs`, а `music-controller.log` лежит в подпапке `plugins`.
+
+        Обращение и вложения публичные. Перед загрузкой удалите из файлов токены, приватные ссылки и личные данные.
+    validations:
+      accept: ".log,.txt,.zip,.png,.jpg,.jpeg,.webp"
