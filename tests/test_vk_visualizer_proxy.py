@@ -1,8 +1,12 @@
 import asyncio
 import hashlib
+from pathlib import Path
+from types import SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
+from grpc import RpcError
 
 from src.plugin import AstraMusic
 from src.playback_host import proxy_audio
@@ -52,12 +56,32 @@ def test_vk_current_and_prepared_tracks_use_same_origin_with_ranges(tmp_path, mo
         music._audio_host.close()
 
 
-def test_support_opens_only_fixed_issue_page(tmp_path, monkeypatch):
+@pytest.mark.parametrize("daemon_error", [None, RpcError, asyncio.TimeoutError])
+def test_support_opens_prefilled_issue_form(tmp_path, monkeypatch, daemon_error):
     monkeypatch.setenv("ASTRA_MUSIC_DATA_DIR", str(tmp_path))
     calls = []
     monkeypatch.setattr("src.plugin.open_in_browser", lambda url: calls.append(url) or True)
-    assert asyncio.run(AstraMusic().ui_support_open(url="https://untrusted.test"))["success"]
-    assert calls == ["https://github.com/Voltur792/astra-music/issues/new/choose"]
+    monkeypatch.setattr("src.plugin.platform.system", lambda: "Darwin")
+    monkeypatch.setattr("src.plugin.platform.mac_ver", lambda: ("15.6", ("", "", ""), "arm64"))
+    monkeypatch.setattr("src.plugin.platform.machine", lambda: "arm64")
+
+    async def daemon_info():
+        if daemon_error:
+            raise daemon_error()
+        return SimpleNamespace(version="0.2.7+test", grpc_port=32000)
+
+    music = AstraMusic()
+    music.host = SimpleNamespace(get_daemon_info=daemon_info)
+    assert asyncio.run(music.ui_support_open(url="https://untrusted.test", os="untrusted"))["success"]
+    url, = map(urlsplit, calls)
+    assert (url.scheme, url.netloc, url.path) == ("https", "github.com", "/Voltur792/astra-music/issues/new")
+    root = Path(__file__).resolve().parents[1]
+    manifest = (root / "plugin.toml").read_text(encoding="utf-8")
+    version = manifest.split('version = "', 1)[1].split('"', 1)[0]
+    expected = {"template": ["bug_report.yml"], "os": ["macOS 15.6 arm64"], "plugin-version": [version]}
+    if daemon_error is None:
+        expected["astra-version"] = ["0.2.7+test"]
+    assert parse_qs(url.query) == expected
 
 
 @pytest.mark.parametrize("opened", [True, False])

@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -16,9 +17,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
+from grpc import RpcError
 
 from astra_plugin_sdk import Field, NotConfigured, Plugin, action, tool, ui_call, ui_effect, ui_page
 from astra_plugin_sdk.capability_types import DesktopWidget as HostCardWidget, UiContribution, WidgetFormat
@@ -3283,7 +3285,32 @@ class AstraMusic(MusicExtensions, Plugin):
 
     @ui_call("music_support_open")
     async def ui_support_open(self, **params: Any) -> dict[str, Any]:
-        opened = await asyncio.to_thread(open_in_browser, "https://github.com/Voltur792/astra-music/issues/new/choose")
+        system = platform.system()
+        release = platform.mac_ver()[0] if system == "Darwin" else platform.release()
+        fields = {
+            "template": "bug_report.yml",
+            "os": " ".join(filter(None, ("macOS" if system == "Darwin" else system, release, platform.machine()))),
+        }
+        try:
+            manifest = Path(__file__).resolve().parent.parent / "plugin.toml"
+            # The packaging CLI writes the version in this section on all supported Python versions.
+            plugin_section = manifest.read_text(encoding="utf-8").partition("[plugin]")[2].partition("\n[")[0]
+            version = re.search(r'''(?m)^\s*version\s*=\s*["']([0-9A-Za-z.+-]+)["']''', plugin_section)
+            if version:
+                fields["plugin-version"] = version.group(1)
+        except (OSError, UnicodeError):
+            pass
+
+        if self.host is not None:
+            try:
+                info = await asyncio.wait_for(self.host.get_daemon_info(), timeout=1)
+                if info.version:
+                    fields["astra-version"] = info.version
+            except (RpcError, asyncio.TimeoutError):
+                pass
+
+        url = "https://github.com/Voltur792/astra-music/issues/new?" + urlencode(fields)
+        opened = await asyncio.to_thread(open_in_browser, url)
         # Even an empty `error` key selects the SDK's raw-response branch,
         # which discards sibling payload fields such as success.
         return {"success": True} if opened else {"error": "Не удалось открыть браузер. Повторите попытку."}
