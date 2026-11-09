@@ -1,5 +1,7 @@
 name: Сообщить о проблеме
 description: Сообщите об ошибке Astra Music или о проблеме с запуском.
+assignees:
+  - Voltur792
 body:
   - type: textarea
     id: problem
