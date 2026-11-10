@@ -1,7 +1,10 @@
 import queue
+import sys
 import threading
 import time
 from types import SimpleNamespace
+
+import pytest
 
 from src.media_keys import MediaKeys
 
@@ -133,6 +136,38 @@ def test_driver_commands_strip_device_flags_and_deduplicate_routes(monkeypatch):
     assert events.appcommand(12 << 16, "appcommand")
     assert not events.appcommand(14 << 16, "appcommand")
     assert list(events.events)[1:] == [(0x5A10, "shell"), (0x5A11, "appcommand")]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows message queue")
+def test_native_wait_wakes_for_synchronously_sent_messages():
+    import ctypes as c
+    from ctypes import wintypes as w
+    from src.windows_media_input import WindowsMediaInput
+
+    api = WindowsMediaInput()
+    send = api.user.SendMessageTimeoutW
+    send.argtypes = [w.HWND, w.UINT, w.WPARAM, w.LPARAM, w.UINT, w.UINT, c.POINTER(c.c_size_t)]
+    send.restype = c.c_ssize_t
+    sent = []
+
+    def send_message():
+        # A private, synchronous message exercises the same queue wakeup as
+        # the hook without injecting input into the foreground application.
+        time.sleep(.02)
+        result = c.c_size_t()
+        sent.append(send(api.window, 0, 0, 0, 0x0002, 500, c.byref(result)))  # WM_NULL, SMTO_ABORTIFHUNG
+
+    sender = threading.Thread(target=send_message)
+    try:
+        assert api.window
+        list(api.messages())
+        sender.start()
+        api.wait_for_messages(1000)
+        list(api.messages())
+        sender.join()
+        assert sent == [1]
+    finally:
+        api.close()
 
 
 def test_driver_route_works_without_hotkey_registration_and_closes_on_shutdown():

@@ -33,6 +33,7 @@
     panel.querySelectorAll("[data-visualizer-mode]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.visualizerMode === settings.mode)));
     styleGroup.querySelectorAll("[data-visualizer-style]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.visualizerStyle === settings.style)));
     widget.checked = settings.widget; background.checked = settings.background;
+    window.MusicUi?.syncToggles();
     intensity.value = settings.intensity; output.value = Math.round(settings.intensity * 100) + "%";
     previews.forEach(preview => preview.renderer.setOptions({ ...settings, style: preview.style }));
     selectedPreview.setOptions(settings);

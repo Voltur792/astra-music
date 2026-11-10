@@ -1,7 +1,8 @@
 :root {
   --music-bg: #18181b; --music-accent: #a1a1aa; --music-text: #ffffff; --music-on-accent: #000000;
   --music-muted: color-mix(in srgb, var(--music-text) 78%, var(--music-bg));
-  --music-border: color-mix(in srgb, var(--music-accent) 55%, var(--music-bg));
+  --music-border: color-mix(in srgb, var(--music-text) 22%, var(--music-bg));
+  --music-plate: color-mix(in srgb, var(--music-text) 9%, var(--music-bg));
 }
 :root[data-music-theme] body { color: var(--music-text); }
 :root[data-music-theme] .player,
@@ -9,7 +10,7 @@
 :root[data-music-theme] .player.is-playing.has-artwork,
 :root[data-music-theme] .player > .queue-panel { background: var(--music-bg); color: var(--music-text); border-color: var(--music-border); }
 :root[data-music-theme] .player::before, :root[data-music-theme] .player::after { display: none; }
-:root[data-music-theme] button { background: color-mix(in srgb, var(--music-accent) 15%, var(--music-bg)); color: var(--music-text); border-color: var(--music-border); box-shadow: none; }
+:root[data-music-theme] button { background: var(--music-plate); color: var(--music-text); border-color: var(--music-border); box-shadow: 0 1px 2px #0004; }
 :root[data-music-theme] button.primary, :root[data-music-theme] button.liked { background: var(--music-accent); color: var(--music-on-accent); border-color: var(--music-accent); text-shadow: none; }
 :root[data-music-theme] .cover-wrap { background: color-mix(in srgb, var(--music-accent) 25%, var(--music-bg)); }
 :root[data-music-theme] #coverFallback { color: var(--music-accent); }

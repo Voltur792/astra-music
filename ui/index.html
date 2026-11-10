@@ -6,19 +6,22 @@
 <title>Музыка</title>
 <!-- The bridge must load first and in <head>: it installs Astra's real
      stylesheet, so the tokens below exist before the first paint. -->
-<script src="page-bridge.js"></script>
-<link rel="stylesheet" href="style.css?v=2">
+<script src="music-kit-bridge.js"></script>
+<script src="page-bridge.js?v=3"></script>
+<link rel="stylesheet" href="style.css?v=7">
 <link rel="stylesheet" href="theme-settings.css">
-<link rel="stylesheet" href="hotkeys-settings.css">
+<link rel="stylesheet" href="hotkeys-settings.css?v=2">
 <link rel="stylesheet" href="internet-radio.css">
+<link rel="stylesheet" href="music-kit.css">
 <script src="widget-theme.js"></script>
 </head>
-<body>
+<body data-music-kit-loading>
+<p class="music-kit-loading" role="status">Загрузка интерфейса Astra Music…</p>
 <!-- Astra's iframe has no intrinsic height: the root must be absolutely
      positioned, or the page collapses to zero. -->
-<main id="app">
+<main id="app" lang="ru">
   <header class="bar">
-    <div class="music-heading"><span class="music-icon" aria-hidden="true">♫</span><div><h1>Astra Music</h1><p class="hint">Ваша музыка, плейлисты и радиоведущая Astra</p></div></div>
+    <div class="music-heading"><img class="music-icon" src="app-icon.png" width="44" height="44" alt=""><div><h1>Astra Music</h1><p class="hint">Ваша музыка, плейлисты и радиоведущая Astra</p></div></div>
     <div class="bar-tools"><span id="status" class="pill" role="status">загрузка…</span></div>
   </header>
 
@@ -139,7 +142,8 @@
     <section class="card hotkeys-settings" aria-labelledby="hotkeysHeading">
       <h2 id="hotkeysHeading">Горячие клавиши</h2>
       <p class="hint">Нажмите «Изменить», затем нужную клавишу или сочетание. Выбор сохранится автоматически. Esc — отмена.</p>
-      <div id="hotkeysRows" class="hotkeys-rows" aria-busy="true"></div>
+      <p class="hint" id="hotkeysLoading" role="status">Загрузка элементов управления…</p>
+      <div id="hotkeysRows" class="hotkeys-rows" aria-busy="true" hidden></div>
       <p class="hint">Свои сочетания работают в Windows для Яндекса, VK и подключённого плеера Spotify, даже когда Astra свёрнута. Сброс возвращает стандартные медиаклавиши.</p>
       <div class="hotkeys-feedback"><p class="hint" id="hotkeysStatus" role="status">Загрузка клавиш…</p><button type="button" id="hotkeysCancel" hidden>Отменить запись</button><button type="button" id="hotkeysRetry" hidden>Повторить</button></div>
     </section>
@@ -148,8 +152,10 @@
     <section class="card" id="radioSettings" aria-labelledby="radioHeading">
       <div class="section-heading"><h2 id="radioHeading">Astra — радиоведущая</h2><span class="pill" id="radioSaveStatus" role="status">Загрузка…</span></div>
       <p class="hint">Короткие подводки к песням с личностью и голосом, выбранными в Astra. Иногда ведущая добавляет рассказ о песне или исполнителе. Музыка на время речи становится тише.</p>
-      <label class="visualizer-switch"><input type="checkbox" id="radioEnabled" disabled><span class="visualizer-switch-track" aria-hidden="true"></span><span>Включить радиоведущую</span></label>
-      <label class="visualizer-switch"><input type="checkbox" id="radioNext" disabled><span class="visualizer-switch-track" aria-hidden="true"></span><span>Объявлять следующую песню</span></label>
+      <div class="radio-toggles">
+        <label class="visualizer-switch"><input type="checkbox" id="radioEnabled" disabled><span class="visualizer-switch-track" aria-hidden="true"></span><span>Включить радиоведущую</span></label>
+        <label class="visualizer-switch"><input type="checkbox" id="radioNext" disabled><span class="visualizer-switch-track" aria-hidden="true"></span><span>Объявлять следующую песню</span></label>
+      </div>
       <p class="hint">Когда очередь доступна, Astra представит следующую песню и может добавить короткий рассказ о ней. Если сервис её ещё не определил, подводка будет только о текущей.</p>
       <div class="radio-frequency"><span id="radioFrequencyLabel">Частота подводок</span><div class="visualizer-mode" role="group" aria-labelledby="radioFrequencyLabel"><button type="button" data-radio-every="1" aria-pressed="false" disabled>Каждую песню</button><button type="button" data-radio-every="3" aria-pressed="true" disabled>Раз в 3 песни</button><button type="button" data-radio-every="5" aria-pressed="false" disabled>Раз в 5 песен</button></div></div>
       <div class="radio-frequency"><span id="radioWhenLabel">Когда говорить</span><div class="visualizer-mode" role="group" aria-labelledby="radioWhenLabel"><button type="button" data-radio-when="start" aria-pressed="false" disabled>В начале песни</button><button type="button" data-radio-when="end" aria-pressed="true" disabled>В конце песни</button></div></div>
@@ -243,15 +249,16 @@
   <footer id="message" class="bar message" role="status"></footer>
 </main>
 <script src="spotify-jobs.js"></script>
-<script src="music-settings.js?v=3"></script>
-<script src="script.js?spotify=4"></script>
+<script src="music-kit.js"></script>
+<script src="music-settings.js?v=4"></script>
+<script src="script.js?spotify=5"></script>
 <script src="audio-spectrum.js?v=2"></script>
-<script src="visualizer-settings.js?v=2"></script>
-<script src="desktop-settings.js"></script>
-<script src="spotify-settings.js?v=5"></script>
+<script src="visualizer-settings.js?v=3"></script>
+<script src="desktop-settings.js?v=2"></script>
+<script src="spotify-settings.js?v=6"></script>
 <script src="theme-settings.js"></script>
 <script src="screen-color.js"></script>
-<script src="hotkeys-settings.js"></script>
+<script src="hotkeys-settings.js?v=3"></script>
 <script src="internet-radio.js"></script>
 </body>
 </html>

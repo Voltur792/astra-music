@@ -1,0 +1,20 @@
+.music-kit-loading { display: none; }
+body[data-music-kit-loading] > :not(.music-kit-loading) { visibility: hidden; }
+body[data-music-kit-loading] > .music-kit-loading { display: block; padding: 12px 16px; margin: 0; font-size: 13px; color: var(--color-text, #f4f4f5); background: var(--color-surface, #202126); }
+
+.music-kit-input { min-width: 0; }
+label > .music-kit-input { width: 100%; }
+.music-kit #searchForm > .music-kit-input,
+.music-kit #spotifySearchForm > .music-kit-input { flex: 1 1 200px; }
+.music-kit #servicePicker { min-width: min(12rem, 100%); }
+.music-kit #servicePicker .astra-ui-root { width: 100%; }
+.music-kit .visualizer-switch[hidden], .music-kit [hidden] { display: none !important; }
+.music-kit #app .ui-btn { max-inline-size: 100%; white-space: normal; }
+.music-kit .music-tabs .ui-btn { transition: none; }
+.music-kit[data-theme="light"] .pill.bad { color: #9b2838; }
+.music-kit .visualizer-intensity input[type="range"] { appearance: auto; accent-color: var(--color-accent); }
+.music-kit .visualizer-intensity input[type="range"]::-webkit-slider-runnable-track,
+.music-kit .visualizer-intensity input[type="range"]::-webkit-slider-thumb { all: revert; }
+
+.music-kit .controls .ui-icon-btn, .music-kit .queue-header .ui-icon-btn { inline-size: 29px; block-size: 29px; min-inline-size: 0; min-block-size: 0; padding: 0; }
+.music-kit .controls .ui-icon-btn.primary { inline-size: 34px; block-size: 34px; }

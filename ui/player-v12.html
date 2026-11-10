@@ -7,13 +7,15 @@
   <link rel="stylesheet" href="player-v12.css">
   <title>Музыкальный плеер Astra</title>
   <link rel="stylesheet" href="widget-theme.css">
+  <link rel="stylesheet" href="music-kit.css">
   <script src="widget-theme.js"></script>
 </head>
-<body>
+<body data-music-kit-loading>
+  <p class="music-kit-loading" role="status">Подключаю плеер…</p>
   <div class="player" role="group" aria-label="Музыкальный плеер Astra">
     <div id="artworkGlow" class="artwork-glow" aria-hidden="true"></div>
     <div class="cover-wrap">
-      <img id="cover" alt="Обложка трека" hidden>
+      <img id="cover" src="app-icon.png" alt="Обложка трека" hidden>
       <span id="coverFallback" aria-hidden="true">♫</span>
   </div>
     <div class="track">
@@ -47,5 +49,6 @@
   <script src="vendor/hls.min.js"></script>
   <script src="player-v12.js"></script>
   <script src="queue.js"></script>
+  <script src="music-kit.js"></script>
 </body>
 </html>

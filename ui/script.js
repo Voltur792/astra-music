@@ -169,6 +169,7 @@
 
   function dropdown(trigger, menu, options, currentId, onPick) {
     let current = currentId;
+    let updateKit = () => {};
 
     function label(id) {
       const found = options.filter((option) => option.id === id)[0];
@@ -220,12 +221,35 @@
 
     render();
     trigger.textContent = label(current);
+    window.MusicUi?.load().then(kit => {
+      if (!kit?.Select || !trigger.isConnected) return;
+      const target = document.createElement("div");
+      trigger.after(target);
+      const view = kit.mount(target, null);
+      const choices = options.map(option => ({value: option.id, label: option.label}));
+      let restoreFocus = document.activeElement === trigger;
+      updateKit = () => view.render(kit.h("div", {ref: node => {
+        if (!node) return;
+        const button = node.querySelector("button");
+        button?.setAttribute("aria-label", trigger.getAttribute("aria-label") + ": " + label(current));
+        if (restoreFocus) button?.focus();
+        restoreFocus = false;
+      }}, kit.h(kit.Select, {options: choices, value: current, onChange: id => {
+        current = id;
+        updateKit();
+        onPick(id);
+      }})));
+      updateKit();
+      close();
+      trigger.hidden = true;
+    }).catch(() => {});
 
     return {
       set(id) {
         current = id;
         trigger.textContent = label(current);
         render();
+        updateKit();
       },
     };
   }

@@ -206,7 +206,10 @@ class MediaKeys:
                         with self._lock:
                             if self._capture and self._capture["session"] == session and "result" not in self._capture:
                                 self._capture["result"] = value
-                self._stop.wait(.05)
+                if hasattr(api, "wait_for_messages"):
+                    api.wait_for_messages(50)
+                else:
+                    self._stop.wait(.05)
         except Exception:
             self._listener_error = "failed"
             log.exception("Native media key listener failed")

@@ -20,6 +20,7 @@
     onTop.disabled = pending || !result.available || !settings.enabled;
     reset.disabled = pending || !result.available;
     transparency.disabled = pending || !result.available;
+    window.MusicUi?.syncToggles();
     status.textContent = result.message || (!result.available ? "Доступно в Windows." : settings.enabled ? "Виджет включён. Перетащите его за название трека." : "Выключен. Позиция и прозрачность сохраняются после перезапуска Astra.");
   }
   async function load() {

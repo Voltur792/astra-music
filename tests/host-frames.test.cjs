@@ -26,7 +26,8 @@ function surface(kind, result, hasWallpaper = false) {
       if (name === 'iframe') element.contentWindow = {postMessage: data => replies.push(data)};
       return element;
     },
-    documentElement: {dataset: {theme: 'dark'}, style: {setProperty: (...args) => globalCss.push(args)}},
+    documentElement: {dataset: {theme: 'dark'}, getAttribute: name => name === 'data-theme' ? 'dark' : null,
+      style: {setProperty: (...args) => globalCss.push(args)}},
   }, innerWidth: 1200, innerHeight: 800,
     getComputedStyle: () => ({backgroundImage: 'linear-gradient(blue, black)', position: 'fixed', visibility: 'visible', display: 'block'}),
     crypto: {randomUUID: () => 'test-channel'}, MutationObserver: class {observe() {} disconnect() {}}});
@@ -47,6 +48,21 @@ test('backend success is unwrapped across direct and SDK JSON envelopes', async 
     assert.equal(frame.replies[0].result.success, true);
     assert.equal(frame.replies[0].result.error, '');
   }
+});
+
+test('the stock UI bridge can read the page theme but cannot call the backend', async () => {
+  const request = {type: 'astra-bridge-request', channel: null, id: 'req_1'};
+  const page = surface('page', {unexpected: true});
+  await page.send({...request, method: 'getUiEnvironment'});
+  assert.equal(page.replies.length, 1);
+  assert.equal(page.replies[0].type, 'astra-bridge-response');
+  assert.equal(page.replies[0].result.attributes['data-theme'], 'dark');
+  await page.send({...request, method: 'callBackend', params: {method: 'music_hotkeys'}});
+  assert.equal(page.replies.length, 1);
+
+  const visualizer = surface('visualizer', {});
+  await visualizer.send({...request, method: 'getUiEnvironment'});
+  assert.equal(visualizer.replies.length, 0);
 });
 
 test('visualizer paints inside opaque wallpaper instead of beneath the whole app', () => {

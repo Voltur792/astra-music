@@ -6,12 +6,15 @@
   <title>Astra Music — очередь</title>
   <link rel="stylesheet" href="player-v12.css">
   <link rel="stylesheet" href="queue-window.css">
-  <script src="queue-bridge.js"></script>
+  <link rel="stylesheet" href="music-kit.css">
+  <script src="music-kit-bridge.js"></script>
+  <script src="queue-bridge.js?v=2"></script>
   <script src="native-bridge.js"></script>
   <link rel="stylesheet" href="widget-theme.css">
   <script src="widget-theme.js"></script>
 </head>
-<body class="queue-window">
+<body class="queue-window" data-music-kit-loading>
+  <p class="music-kit-loading" role="status">Загрузка очереди…</p>
   <main class="player">
     <section id="queuePanel" class="queue-panel" aria-label="Очередь воспроизведения">
       <header class="queue-header pywebview-drag-region">
@@ -23,5 +26,6 @@
     </section>
   </main>
   <script src="queue.js"></script>
+  <script src="music-kit.js"></script>
 </body>
 </html>

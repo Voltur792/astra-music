@@ -868,7 +868,7 @@ def _data_dir() -> Path:
 @ui_page(
     "music",
     "Музыка",
-    "host-page.js",
+    "host-page-v6.js",
     icon_svg=TAB_ICON_SVG,
 )
 @ui_effect("host-visualizer.js", id="music-visualizer", audio=True)
@@ -3254,7 +3254,7 @@ class AstraMusic(MusicExtensions, Plugin):
         # Card shell is Astra's (desktop.widget). The legacy home.widgets slot
         # got a 4x6-cell tile in Astra 0.2.7, leaving an empty backdrop under the
         # 168 px player. Same id and format id keep already placed cards.
-        player_url = "player-remote.html" if self._audio_host.enabled else "player-v12.html"
+        player_url = "player-remote.html?v=2" if self._audio_host.enabled else "player-v12.html?v=2"
         player = UiContribution.widget("music-home-player-v13", "Музыкальный плеер", HostCardWidget(formats=[
             WidgetFormat(id="card", label="Плеер", url=player_url,
                          default_w=4, default_h=2, min_w=3, min_h=2, max_w=8, max_h=3,
@@ -3262,7 +3262,7 @@ class AstraMusic(MusicExtensions, Plugin):
         ]))
         player.props = {} if self._audio_host.enabled else {"audio": "true"}
         contributions.append(player)
-        contributions.append(self.ui_effect("queue-controller.js", id="music-queue-overlay"))
+        contributions.append(self.ui_effect("queue-controller-v2.js", id="music-queue-overlay"))
         for contribution in contributions:
             if contribution.id == "music":
                 contribution.transparent = True

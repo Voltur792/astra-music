@@ -6,8 +6,14 @@
   if (!root || !bridge) return;
   window.__musicQueueController?.stop();
   const base = "http://astra-plugin.localhost/music-controller/";
-  let popup = null, anchor = null, channel = null;
-  function close() { popup?.remove(); popup = null; anchor = null; channel = null; }
+  let popup = null, anchor = null, channel = null, kitReady = false;
+  function close() { popup?.remove(); popup = null; anchor = null; channel = null; kitReady = false; }
+  const themeAttributes = ["data-theme", "data-palette", "data-accent", "data-material", "data-glass", "data-fluent"];
+  function uiEnvironment() {
+    const html = document.documentElement;
+    const attributes = Object.fromEntries(themeAttributes.map(name => [name, html.getAttribute(name)]));
+    return {attributes, variables: bridge.getCssVariables?.() || {}, language: html.lang || "ru"};
+  }
   function position() {
     if (!popup) return;
     if (!anchor?.isConnected || !root.isConnected) { close(); return; }
@@ -44,13 +50,19 @@
         popup.title = "Очередь воспроизведения Astra Music";
         popup.setAttribute("sandbox", "allow-scripts allow-forms");
         Object.assign(popup.style, {position: "fixed", zIndex: "2147483000", border: "0", borderRadius: "10px", boxShadow: "0 10px 28px #0006"});
-        popup.src = base + "queue-window.html#queue-channel=" + channel;
+        popup.src = base + "queue-window.html?v=2#queue-channel=" + channel;
         document.body.append(popup); position();
       }
       event.source.postMessage({type: "astra-music:queue-ack", id: message.id, opened: Boolean(popup)}, "*");
       return;
     }
-    if (!popup || event.source !== popup.contentWindow || message?.channel !== channel) return;
+    if (!popup || event.source !== popup.contentWindow || !message) return;
+    if (message.type === "astra-bridge-request" && message.method === "getUiEnvironment" && /^req_\d+$/.test(message.id)) {
+      kitReady = true;
+      event.source.postMessage({type: "astra-bridge-response", id: message.id, result: uiEnvironment()}, "*");
+      return;
+    }
+    if (message.channel !== channel) return;
     if (message.type === "close") { close(); return; }
     if (message.type !== "call" || !["music_queue", "music_queue_play"].includes(message.method)) return;
     const destination = event.source, replyChannel = channel;
@@ -65,13 +77,17 @@
   const escape = event => { if (event.key === "Escape") close(); };
   const observer = new MutationObserver(() => { if (!root.isConnected || anchor && !anchor.isConnected) close(); });
   observer.observe(document.body, {childList: true, subtree: true});
+  const themeObserver = new MutationObserver(() => {
+    if (kitReady) popup?.contentWindow?.postMessage({type: "astra-bridge-event", event: "uiEnvironmentChange", payload: uiEnvironment()}, "*");
+  });
+  themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: [...themeAttributes, "lang", "style"]});
   window.addEventListener("message", receive);
   window.addEventListener("resize", position);
   window.addEventListener("scroll", position, true);
   document.addEventListener("pointerdown", outside, true);
   document.addEventListener("keydown", escape);
   const controller = {stop() {
-    close(); observer.disconnect();
+    close(); observer.disconnect(); themeObserver.disconnect();
     window.removeEventListener("message", receive); window.removeEventListener("resize", position);
     window.removeEventListener("scroll", position, true); document.removeEventListener("pointerdown", outside, true);
     document.removeEventListener("keydown", escape);

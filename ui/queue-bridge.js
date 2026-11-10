@@ -20,5 +20,6 @@
       parent.postMessage({channel, type: "call", id, method, params}, "*");
     });
   }};
+  window.attachMusicKit?.(window.astra);
   window.closeMusicQueue = () => parent.postMessage({channel, type: "close"}, "*");
 })();

@@ -6,6 +6,7 @@
   const call = async (method, params = {}) => parse(await window.astra.callBackend(method, params));
   function render(state) {
     $('spotifyHidden').checked = state.hidden !== false;
+    window.MusicUi?.syncToggles();
     const signedIn = state.logged_in === true && (state.running || state.active);
     $('spotifyStatus').textContent = state.connecting ? 'Проверяю вход…' : signedIn ? state.audio_route === 'discord' ? 'Вход выполнен · звук в Discord' : state.active ? 'Вход выполнен · подключён' : 'Вход выполнен' : state.login_open ? 'Ожидаю входа в Edge' : state.session_saved ? 'Вход сохранён · подключите управление' : 'Вход не выполнен';
     $('spotifyStatus').classList.toggle('good', signedIn);

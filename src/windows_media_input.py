@@ -7,6 +7,9 @@ from .media_keys import WindowsHotkeys, ACTIONS, log
 from .hotkeys import CUSTOM_ACTIONS, MODIFIER_KEYS
 
 KEY_IDS = {key: identifier for identifier, (key, _) in ACTIONS.items()}
+QS_ALLINPUT = 0x1CFF
+MWMO_INPUTAVAILABLE = 0x0004
+WAIT_FAILED = 0xFFFFFFFF
 
 
 class MediaInputEvents:
@@ -131,6 +134,8 @@ class WindowsMediaInput(WindowsHotkeys):
         bind("CallNextHookEx", c.c_ssize_t, w.HANDLE, c.c_int, w.WPARAM, w.LPARAM)
         bind("TranslateMessage", w.BOOL, c.POINTER(w.MSG))
         bind("DispatchMessageW", c.c_ssize_t, c.POINTER(w.MSG))
+        bind("MsgWaitForMultipleObjectsEx", w.DWORD, w.DWORD, c.POINTER(w.HANDLE),
+             w.DWORD, w.DWORD, w.DWORD)
         bind("GetAsyncKeyState", c.c_short, c.c_int)
         self.shell_message = self.user.RegisterWindowMessageW("SHELLHOOK")
 
@@ -182,6 +187,13 @@ class WindowsMediaInput(WindowsHotkeys):
                 self.user.DeregisterShellHookWindow(self.window)
                 self.shell_registered = False
             self.input.events.clear()
+
+    def wait_for_messages(self, timeout_ms):
+        # Windows sends hook callbacks to this thread synchronously, including
+        # for ordinary keys. Wake for sent messages as well as posted hotkeys.
+        result = self.user.MsgWaitForMultipleObjectsEx(0, None, timeout_ms, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
+        if result == WAIT_FAILED:
+            raise self.ctypes.WinError(self.ctypes.get_last_error())
 
     def messages(self):
         while self.user.PeekMessageW(self.ctypes.byref(self.message), None, 0, 0, 1):

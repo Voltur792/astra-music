@@ -60,13 +60,32 @@
     if (surface === "visualizer") placeBackground(); else root.append(host);
     let stopped = false;
     const post = data => frame.contentWindow?.postMessage({channel, ...data}, "*");
+    let kitActive = false;
+    const themeAttributes = ["data-theme", "data-palette", "data-accent", "data-material", "data-glass", "data-fluent"];
+    function uiEnvironment(variables = bridge.getCssVariables?.() || {}) {
+      const html = document.documentElement;
+      const attributes = Object.fromEntries(themeAttributes.map(name => [name, html.getAttribute(name)]));
+      attributes["data-theme"] ||= bridge.getTheme?.() || "dark";
+      return {attributes, variables, language: html.lang || "ru"};
+    }
     function theme() {
+      const variables = bridge.getCssVariables?.() || {};
+      if (kitActive) post({type: "astra-bridge-event", event: "uiEnvironmentChange", payload: uiEnvironment(variables)});
       post({type: "theme", theme: bridge.getTheme?.() || document.documentElement.dataset.theme || "dark",
-        variables: bridge.getCssVariables?.() || {}});
+        variables});
     }
     async function receive(event) {
       const message = event.data;
-      if (stopped || event.source !== frame.contentWindow || message?.channel !== channel) return;
+      if (stopped || event.source !== frame.contentWindow || !message) return;
+      // The stock UI loader needs a read-only environment snapshot. Backend
+      // calls still require the private Music channel and its allowlist below.
+      if (surface === "page" && message.type === "astra-bridge-request" &&
+          message.method === "getUiEnvironment" && /^req_\d+$/.test(message.id)) {
+        kitActive = true;
+        post({type: "astra-bridge-response", id: message.id, result: uiEnvironment()});
+        return;
+      }
+      if (message.channel !== channel) return;
       if (message.type === "ready") { theme(); return; }
       if (message.type !== "request") return;
       try {
@@ -82,6 +101,8 @@
       } catch (error) { if (!stopped) post({type: "reply", id: message.id, error: String(error.message || error)}); }
     }
     const untheme = bridge.onThemeChange?.(theme);
+    const environmentObserver = new MutationObserver(() => { if (kitActive) theme(); });
+    if (surface === "page") environmentObserver.observe(document.documentElement, {attributes: true, attributeFilter: [...themeAttributes, "lang", "style"]});
     window.addEventListener("message", receive);
     const observer = new MutationObserver(() => {
       if (!root.isConnected) stop();
@@ -91,6 +112,7 @@
     function stop() {
       if (stopped) return;
       stopped = true; observer.disconnect(); untheme?.(); window.removeEventListener("message", receive);
+      environmentObserver.disconnect();
       restorePosition();
       host.remove();
     }

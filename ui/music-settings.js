@@ -26,6 +26,7 @@
     controls.forEach(control => control.disabled = !loaded);
     document.querySelectorAll('[data-radio-every]').forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.radioEvery) === settings.every)));
     document.querySelectorAll('[data-radio-when]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.radioWhen === settings.when)));
+    window.MusicUi?.syncToggles();
   }
   async function save() {
     if (!loaded || saving) return;

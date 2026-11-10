@@ -36,11 +36,21 @@
       if (data.error) entry.reject(new Error(data.error)); else entry.resolve(data.result);
     }
   });
-  window.astra = {
+  const musicBridge = {
     callBackend: (method, params = {}) => request("backend", {method, params}),
     getData: key => request("getData", {key}),
     setData: (key, value) => request("setData", {key, value}),
     onThemeChange: listener => { themeListeners.add(listener); return () => themeListeners.delete(listener); },
   };
+  if (location.pathname.endsWith("/index.html") && window.attachMusicKit) {
+    window.attachMusicKit(musicBridge);
+    const loadUi = musicBridge.loadUi;
+    musicBridge.loadUi = async options => {
+      const kit = await loadUi(options);
+      applyColorScheme();
+      return kit;
+    };
+  }
+  window.astra = musicBridge;
   parent.postMessage({channel, type: "ready"}, "*");
 })();

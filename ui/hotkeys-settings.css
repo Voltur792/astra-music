@@ -4,6 +4,8 @@
 .hotkey-name { font-size: 13px; }
 .hotkey-value { min-width: 0; padding: 10px 12px; border: 1px solid var(--color-border, #6b6475); border-radius: 8px; font: inherit; font-size: 12px; overflow-wrap: anywhere; }
 .hotkey-value[data-recording="true"] { border-color: var(--accent, #9b8cff); }
+.hotkey-kit-rows { display: grid; gap: 8px; }
+.hotkey-kit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .hotkeys-feedback { min-height: 48px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .hotkeys-feedback p { flex: 1 1 220px; margin: 0; }
 @media (max-width: 640px) {
